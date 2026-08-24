@@ -1,0 +1,1223 @@
+/* ==========================================================================
+   RESPONSIVE UI
+   CONTROLE DE EMBALAGENS — MAGIUS + YMS
+
+   Este arquivo é uma camada responsiva compartilhada pelos dois temas.
+
+   IMPORTANTE:
+   - NÃO altera a identidade visual do Magius.
+   - NÃO altera a identidade visual do YMS.
+   - Usa as variáveis CSS do tema atualmente ativo.
+   - Desktop permanece praticamente inalterado.
+   - A navegação mobile utiliza menu hambúrguer + drawer.
+   ========================================================================== */
+
+
+/* ==========================================================================
+   1. BASE RESPONSIVA
+   ========================================================================== */
+
+html {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+#app {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.page,
+.page-header,
+.form-card,
+.filter-bar,
+.export-bar,
+.table-wrap,
+.catalog-grid,
+.detail-grid,
+.form-grid,
+.config-row,
+.users-list {
+  min-width: 0;
+}
+
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+}
+
+input,
+select,
+textarea,
+button {
+  max-width: 100%;
+}
+
+
+/* ==========================================================================
+   2. CONTROLE DO MENU MOBILE
+   ========================================================================== */
+
+.mobile-menu-button,
+.mobile-menu-backdrop,
+.mobile-menu-drawer {
+  display: none;
+}
+
+
+/* ==========================================================================
+   3. TABLET / TELAS MÉDIAS
+   ========================================================================== */
+
+@media (max-width: 1024px) {
+
+  .page {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .page-header {
+    gap: 14px;
+  }
+
+  .page-title {
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  .page-sub {
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  .form-grid {
+    min-width: 0;
+  }
+
+  .form-grid > *,
+  .filter-bar > *,
+  .detail-grid > *,
+  .catalog-grid > * {
+    min-width: 0;
+  }
+
+  .field {
+    min-width: 0;
+  }
+
+  .field input,
+  .field select,
+  .field textarea {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .catalog-grid {
+    grid-template-columns: repeat(
+      auto-fit,
+      minmax(min(280px, 100%), 1fr)
+    );
+  }
+
+  .detail-grid {
+    min-width: 0;
+  }
+
+  .table-wrap {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .modal {
+    max-width: calc(100vw - 32px);
+  }
+}
+
+
+/* ==========================================================================
+   4. CELULAR — MENU HAMBÚRGUER
+   ========================================================================== */
+
+@media (max-width: 767px) {
+
+  /*
+   * A navegação horizontal original deixa de existir visualmente.
+   * O JavaScript cria o drawer mobile usando os mesmos botões existentes.
+   */
+
+  .nav-tabs {
+    display: none !important;
+  }
+
+  /*
+   * Topbar
+   */
+
+  .topbar {
+    position: relative;
+    z-index: 700;
+    min-height: 58px;
+    width: 100%;
+    max-width: 100%;
+    padding: 8px 12px !important;
+    display: flex;
+    align-items: center !important;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: nowrap !important;
+  }
+
+  .topbar-brand {
+    min-width: 0;
+    flex: 1 1 auto;
+    font-size: 15px !important;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .topbar-right {
+    flex: 0 0 auto;
+    width: auto !important;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end !important;
+    gap: 5px;
+    flex-wrap: nowrap !important;
+  }
+
+  /*
+   * Esconde informações que ocupam muito espaço.
+   * Elas continuam disponíveis dentro do menu mobile.
+   */
+
+  .topbar .user-badge {
+    display: none;
+  }
+
+  .topbar-right > .btn:not(.btn-icon) {
+    display: none;
+  }
+
+  /*
+   * Notificações e Administração continuam acessíveis no topo.
+   */
+
+  .topbar-right .btn-icon {
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    min-height: 40px;
+    padding: 0 !important;
+  }
+
+  /*
+   * Botão hambúrguer
+   */
+
+  .mobile-menu-button {
+    display: inline-flex;
+    flex: 0 0 44px;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+
+    align-items: center;
+    justify-content: center;
+
+    margin: 0;
+    padding: 0;
+
+    border: 1px solid var(--border);
+    border-radius: var(--radius, 10px);
+
+    background: var(--surface2);
+    color: var(--text);
+
+    font-family: var(--font-body);
+    font-size: 22px;
+    line-height: 1;
+
+    cursor: pointer;
+    touch-action: manipulation;
+
+    transition:
+      background-color .18s ease,
+      border-color .18s ease,
+      transform .18s ease;
+  }
+
+  .mobile-menu-button:hover {
+    border-color: var(--accent);
+  }
+
+  .mobile-menu-button:active {
+    transform: scale(.96);
+  }
+
+  .mobile-menu-button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .mobile-menu-button .mobile-menu-icon {
+    display: block;
+    width: 22px;
+    height: 16px;
+    position: relative;
+  }
+
+  .mobile-menu-button .mobile-menu-icon::before,
+  .mobile-menu-button .mobile-menu-icon::after,
+  .mobile-menu-button .mobile-menu-icon span {
+    content: "";
+    position: absolute;
+    left: 0;
+    width: 22px;
+    height: 2px;
+    border-radius: 2px;
+    background: currentColor;
+    transition:
+      transform .18s ease,
+      top .18s ease,
+      opacity .18s ease;
+  }
+
+  .mobile-menu-button .mobile-menu-icon::before {
+    top: 0;
+  }
+
+  .mobile-menu-button .mobile-menu-icon span {
+    top: 7px;
+  }
+
+  .mobile-menu-button .mobile-menu-icon::after {
+    top: 14px;
+  }
+
+  body.mobile-menu-open .mobile-menu-button .mobile-menu-icon::before {
+    top: 7px;
+    transform: rotate(45deg);
+  }
+
+  body.mobile-menu-open .mobile-menu-button .mobile-menu-icon span {
+    opacity: 0;
+  }
+
+  body.mobile-menu-open .mobile-menu-button .mobile-menu-icon::after {
+    top: 7px;
+    transform: rotate(-45deg);
+  }
+
+
+  /*
+   * Backdrop
+   */
+
+  .mobile-menu-backdrop {
+    display: block;
+
+    position: fixed;
+    inset: 0;
+
+    z-index: 998;
+
+    background: rgba(0, 0, 0, .42);
+
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+
+    transition:
+      opacity .2s ease,
+      visibility .2s ease;
+  }
+
+  body.mobile-menu-open .mobile-menu-backdrop {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+
+
+  /*
+   * Drawer
+   */
+
+  .mobile-menu-drawer {
+    display: flex;
+
+    position: fixed;
+
+    top: 0;
+    left: 0;
+    bottom: 0;
+
+    z-index: 999;
+
+    width: min(86vw, 360px);
+    max-width: 360px;
+
+    flex-direction: column;
+
+    background: var(--surface);
+    color: var(--text);
+
+    border-right: 1px solid var(--border);
+
+    box-shadow:
+      8px 0 30px rgba(0, 0, 0, .18);
+
+    transform: translateX(-105%);
+    visibility: hidden;
+    pointer-events: none;
+
+    transition:
+      transform .22s cubic-bezier(.4, 0, .2, 1),
+      visibility .22s ease;
+  }
+
+  body.mobile-menu-open .mobile-menu-drawer {
+    transform: translateX(0);
+    visibility: visible;
+    pointer-events: auto;
+  }
+
+
+  /*
+   * Cabeçalho do drawer
+   */
+
+  .mobile-menu-header {
+    flex: 0 0 auto;
+
+    min-height: 68px;
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    gap: 12px;
+
+    padding:
+      max(10px, env(safe-area-inset-top))
+      16px
+      10px
+      16px;
+
+    border-bottom: 1px solid var(--border);
+
+    background: var(--surface);
+  }
+
+  .mobile-menu-title-wrap {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .mobile-menu-title {
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.2;
+
+    overflow-wrap: anywhere;
+  }
+
+  .mobile-menu-user {
+    margin-top: 4px;
+
+    color: var(--text2);
+    font-size: 11px;
+    line-height: 1.35;
+
+    overflow-wrap: anywhere;
+  }
+
+  .mobile-menu-close {
+    flex: 0 0 42px;
+
+    width: 42px;
+    min-width: 42px;
+
+    height: 42px;
+    min-height: 42px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    border: 1px solid var(--border);
+    border-radius: var(--radius, 10px);
+
+    background: var(--surface2);
+    color: var(--text);
+
+    font-size: 22px;
+    line-height: 1;
+
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  .mobile-menu-close:hover {
+    border-color: var(--accent);
+  }
+
+  .mobile-menu-close:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+
+  /*
+   * Lista de navegação
+   */
+
+  .mobile-menu-nav {
+    flex: 1 1 auto;
+
+    min-height: 0;
+
+    overflow-y: auto;
+    overflow-x: hidden;
+
+    padding: 12px;
+
+    overscroll-behavior: contain;
+
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .mobile-menu-nav::-webkit-scrollbar {
+    width: 5px;
+  }
+
+  .mobile-menu-nav::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 5px;
+  }
+
+  .mobile-menu-item {
+    width: 100%;
+    min-height: 50px;
+
+    display: flex;
+    align-items: center;
+
+    gap: 10px;
+
+    margin: 0 0 6px;
+    padding: 12px 13px;
+
+    border: 1px solid transparent;
+    border-radius: var(--radius, 10px);
+
+    background: transparent;
+    color: var(--text);
+
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 500;
+
+    line-height: 1.3;
+    text-align: left;
+
+    cursor: pointer;
+    touch-action: manipulation;
+
+    transition:
+      background-color .16s ease,
+      border-color .16s ease,
+      color .16s ease;
+  }
+
+  .mobile-menu-item:hover {
+    background: var(--surface2);
+    border-color: var(--border);
+  }
+
+  .mobile-menu-item:active {
+    background: var(--surface2);
+  }
+
+  .mobile-menu-item.active {
+    background: var(--surface2);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .mobile-menu-item:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .mobile-menu-item-icon {
+    flex: 0 0 24px;
+
+    width: 24px;
+    min-width: 24px;
+
+    text-align: center;
+    font-size: 17px;
+    line-height: 1;
+  }
+
+  .mobile-menu-item-label {
+    flex: 1 1 auto;
+    min-width: 0;
+
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+
+  /*
+   * Rodapé do menu
+   */
+
+  .mobile-menu-footer {
+    flex: 0 0 auto;
+
+    padding:
+      10px
+      12px
+      max(12px, env(safe-area-inset-bottom))
+      12px;
+
+    border-top: 1px solid var(--border);
+
+    background: var(--surface);
+  }
+
+  .mobile-menu-footer-user {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    min-width: 0;
+
+    margin-bottom: 8px;
+
+    color: var(--text2);
+    font-size: 11px;
+    line-height: 1.4;
+  }
+
+  .mobile-menu-footer-user > div {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .mobile-menu-logout {
+    width: 100%;
+    min-height: 48px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: var(--radius, 10px);
+
+    cursor: pointer;
+  }
+
+
+  /*
+   * Conteúdo
+   */
+
+  .page {
+    width: 100%;
+    max-width: 100%;
+    padding: 18px 14px !important;
+  }
+
+  .page-header {
+    width: 100%;
+    max-width: 100%;
+
+    flex-direction: column !important;
+    align-items: stretch !important;
+
+    gap: 12px !important;
+
+    margin-bottom: 16px;
+  }
+
+  .page-header > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .page-header .btn,
+  .page-header > div:last-child .btn {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .page-title {
+    max-width: 100%;
+
+    font-size: 21px !important;
+    line-height: 1.2 !important;
+
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  .page-sub {
+    max-width: 100%;
+
+    margin-top: 5px;
+
+    font-size: 12px;
+    line-height: 1.45;
+
+    overflow-wrap: anywhere;
+  }
+
+
+  /*
+   * Cards
+   */
+
+  .form-card {
+    width: 100%;
+    max-width: 100%;
+
+    padding: 17px 14px !important;
+
+    overflow: hidden;
+  }
+
+  .form-card-title {
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+
+
+  /*
+   * Grids
+   */
+
+  .form-grid,
+  .detail-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .form-grid .span2 {
+    grid-column: auto !important;
+  }
+
+  .form-grid > *,
+  .detail-grid > * {
+    min-width: 0;
+  }
+
+
+  /*
+   * Filtros
+   */
+
+  .filter-bar {
+    width: 100%;
+    max-width: 100%;
+
+    flex-direction: column !important;
+    align-items: stretch !important;
+
+    gap: 10px;
+  }
+
+  .filter-bar .field,
+  .filter-bar > div {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100%;
+  }
+
+  .filter-bar .btn {
+    width: 100%;
+    min-height: 44px;
+  }
+
+
+  /*
+   * Campos
+   */
+
+  .field {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .field input,
+  .field select,
+  .field textarea {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+
+    font-size: 16px;
+  }
+
+  /*
+   * 16px evita zoom automático indesejado em muitos navegadores iOS.
+   */
+
+  textarea {
+    max-width: 100%;
+  }
+
+
+  /*
+   * Botões
+   */
+
+  .btn {
+    min-height: 44px;
+  }
+
+  .btn-sm {
+    min-height: 42px;
+  }
+
+  /*
+   * Botões agrupados.
+   */
+
+  .export-bar {
+    width: 100%;
+    max-width: 100%;
+
+    gap: 10px;
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .export-bar .count {
+    width: 100%;
+    line-height: 1.4;
+  }
+
+  .export-btns {
+    width: 100%;
+
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .export-btns .btn {
+    width: 100%;
+    min-width: 0;
+  }
+
+
+  /*
+   * Botões de ação inline.
+   */
+
+  .page-header > div[style*="display:flex"],
+  .form-card > div[style*="display:flex"] {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+
+  /*
+   * Catálogo
+   */
+
+  .catalog-grid {
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .catalog-card {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .catalog-card-header {
+    min-width: 0;
+  }
+
+  .catalog-card-actions {
+    flex-wrap: wrap;
+  }
+
+
+  /*
+   * Tabelas.
+   *
+   * Não escondemos colunas genericamente.
+   * As tabelas continuam disponíveis e o usuário pode rolar
+   * somente dentro da tabela quando realmente necessário.
+   */
+
+  .table-wrap {
+    width: 100%;
+    max-width: 100%;
+
+    overflow: hidden;
+  }
+
+  .table-wrap > div {
+    max-width: 100%;
+  }
+
+  .table-wrap table {
+    max-width: none;
+  }
+
+  /*
+   * Scroll horizontal fica restrito ao container da tabela,
+   * nunca ao site inteiro.
+   */
+
+  .table-wrap > div[style*="overflow-x:auto"] {
+    width: 100%;
+    max-width: 100%;
+
+    overflow-x: auto !important;
+    overflow-y: hidden;
+
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+
+  .table-wrap th,
+  .table-wrap td {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+
+  /*
+   * Fotos
+   */
+
+  .foto-zone {
+    width: 100%;
+    min-height: 150px;
+
+    padding: 24px 14px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .foto-zone-text {
+    max-width: 100%;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  .foto-preview {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+
+  /*
+   * Modais
+   */
+
+  .modal-overlay {
+    padding:
+      max(10px, env(safe-area-inset-top))
+      10px
+      max(10px, env(safe-area-inset-bottom))
+      10px;
+
+    align-items: center;
+  }
+
+  .modal {
+    width: 100%;
+    max-width: 100% !important;
+
+    max-height: calc(100dvh - 20px) !important;
+
+    padding: 20px 15px !important;
+
+    border-radius: 14px;
+
+    overflow-x: hidden;
+    overflow-y: auto;
+
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .modal-title {
+    max-width: calc(100% - 42px);
+
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+
+  .modal-close {
+    width: 42px;
+    height: 42px;
+
+    top: 10px;
+    right: 10px;
+  }
+
+  .detail-grid {
+    width: 100%;
+  }
+
+
+  /*
+   * Imagem em tela cheia
+   */
+
+  #img-viewer {
+    padding: 10px;
+  }
+
+  #img-viewer img {
+    max-width: calc(100vw - 20px);
+    max-height: calc(100dvh - 80px);
+  }
+
+  #img-viewer-close {
+    top: 10px;
+    right: 10px;
+
+    min-height: 44px;
+  }
+
+
+  /*
+   * Toast
+   */
+
+  .toast {
+    left: 12px !important;
+    right: 12px !important;
+
+    bottom:
+      max(12px, env(safe-area-inset-bottom));
+
+    max-width: none !important;
+
+    width: auto;
+  }
+
+
+  /*
+   * Administração
+   */
+
+  .admin-gate {
+    width: 100%;
+    max-width: 100%;
+
+    padding: 22px 16px;
+  }
+
+  .user-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .user-row > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .config-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .config-row > * {
+    width: 100%;
+    max-width: 100%;
+  }
+
+
+  /*
+   * Notificação
+   */
+
+  #notif-banner {
+    left: 12px;
+    right: 12px;
+    bottom: max(12px, env(safe-area-inset-bottom));
+
+    width: auto;
+    max-width: none;
+
+    align-items: stretch;
+  }
+
+  #notif-banner .nb-text {
+    width: 100%;
+    min-width: 0;
+  }
+
+  #notif-banner .nb-btns {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #notif-banner .nb-btns .btn {
+    width: 100%;
+  }
+
+
+  /*
+   * Acessibilidade / interação
+   */
+
+  button,
+  input[type="checkbox"],
+  input[type="radio"],
+  select {
+    touch-action: manipulation;
+  }
+
+}
+
+
+/* ==========================================================================
+   5. CELULAR PEQUENO
+   ========================================================================== */
+
+@media (max-width: 480px) {
+
+  .topbar {
+    padding-left: 9px !important;
+    padding-right: 9px !important;
+  }
+
+  .topbar-brand {
+    font-size: 14px !important;
+  }
+
+  .topbar-right {
+    gap: 3px;
+  }
+
+  .topbar-right .btn-icon {
+    width: 38px;
+    min-width: 38px;
+    height: 38px;
+    min-height: 38px;
+  }
+
+  .mobile-menu-button {
+    flex-basis: 42px;
+    width: 42px;
+    min-width: 42px;
+    height: 42px;
+    min-height: 42px;
+  }
+
+  .page {
+    padding: 16px 11px !important;
+  }
+
+  .page-title {
+    font-size: 19px !important;
+  }
+
+  .form-card {
+    padding: 15px 12px !important;
+  }
+
+  .export-btns {
+    grid-template-columns: 1fr;
+  }
+
+  .foto-preview {
+    grid-template-columns: 1fr !important;
+  }
+
+  .mobile-menu-drawer {
+    width: min(90vw, 340px);
+  }
+
+  .mobile-menu-item {
+    min-height: 52px;
+  }
+
+  .modal {
+    max-height: calc(100dvh - 12px) !important;
+    padding: 18px 12px !important;
+  }
+
+}
+
+
+/* ==========================================================================
+   6. LANDSCAPE EM CELULAR
+   ========================================================================== */
+
+@media (max-width: 767px) and (orientation: landscape) {
+
+  .mobile-menu-drawer {
+    width: min(70vw, 360px);
+  }
+
+  .mobile-menu-header {
+    min-height: 58px;
+  }
+
+  .mobile-menu-nav {
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  .mobile-menu-item {
+    min-height: 46px;
+    padding-top: 9px;
+    padding-bottom: 9px;
+  }
+
+  .modal {
+    max-height: calc(100dvh - 12px) !important;
+  }
+
+}
+
+
+/* ==========================================================================
+   7. REDUÇÃO DE MOVIMENTO
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+
+  .mobile-menu-button,
+  .mobile-menu-button .mobile-menu-icon::before,
+  .mobile-menu-button .mobile-menu-icon::after,
+  .mobile-menu-button .mobile-menu-icon span,
+  .mobile-menu-backdrop,
+  .mobile-menu-drawer {
+    transition: none !important;
+  }
+
+}
