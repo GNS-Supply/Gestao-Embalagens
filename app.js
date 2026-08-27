@@ -9,7 +9,7 @@ import {
   auth, db, messaging, FCM_VAPID_KEY, onMessagingReady, getToken,
   createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail,
   signOut, onAuthStateChanged, updateProfile,
-  collection, addDoc, getDocs, getDoc, setDoc, deleteDoc, doc, updateDoc,
+  collection, collectionGroup, addDoc, getDocs, getDoc, setDoc, deleteDoc, doc, updateDoc,
   query, orderBy, where, serverTimestamp, runTransaction, onSnapshot
 } from './firebase-config.js';
 
@@ -73,8 +73,8 @@ window.registrarAuditLog = registrarAuditLog;
 //  1) Garante que a planta 'matriz' existe (loadPlantas() já faz isso, mas reforça aqui).
 //  2) Grava plantaId:'matriz' em todo documento de registros / baixas_embalagens /
 //     solicitacoes_embalagens / ajustes_inventario que ainda não tenha esse campo.
-//  3) Copia o saldo legado (saldoVazias/saldoCheias) de cada embalagensCat para
-//     saldoPorPlanta.matriz, preservando o saldo já existente.
+//  3) Copia o saldo legado (saldoVazias/saldoCheias) de cada embalagensCat para o subdoc
+//     embalagensCat/{id}/saldos/matriz, preservando o saldo já existente.
 //  4) Define plantaPadrao:'matriz' em usuários que ainda não tenham planta padrão definida.
 // Documentos criados a partir de agora já nascem com plantaId — esta migração não precisa
 // rodar de novo.
@@ -101,13 +101,18 @@ window.migrarParaMultiPlanta = async function(){
   let embAtualizadas=0;
   for(const d of embSnap.docs){
     const e = d.data();
-    if(e.saldoPorPlanta?.matriz) continue;
-    await updateDoc(doc(db,'embalagensCat',d.id), {
-      [`saldoPorPlanta.matriz`]: { vazias: Number(e.saldoVazias)||0, cheias: Number(e.saldoCheias)||0 }
+    const saldoMatrizRef = doc(db,'embalagensCat', d.id, 'saldos', 'matriz');
+    const saldoMatrizSnap = await getDoc(saldoMatrizRef);
+    if(saldoMatrizSnap.exists()) continue;
+    await setDoc(saldoMatrizRef, {
+      plantaId: 'matriz',
+      vazias: Number(e.saldoVazias)||0,
+      cheias: Number(e.saldoCheias)||0,
+      atualizadoEm: serverTimestamp()
     });
     embAtualizadas++;
   }
-  console.log(`[migração] embalagensCat: ${embAtualizadas} inicializada(s) com saldoPorPlanta.matriz.`);
+  console.log(`[migração] embalagensCat: ${embAtualizadas} inicializada(s) com o subdoc saldos/matriz.`);
 
   const usersSnap = await getDocs(collection(db,'usuarios'));
   let usersAtualizados=0;
@@ -1134,10 +1139,25 @@ function renderClienteEmbalagensModal(){
 }
  
 // ── EMBALAGENS CATÁLOGO ────────────────────────────────
+// O saldo (vazias/cheias) de cada embalagem NÃO fica mais num mapa dentro do próprio doc
+// embalagensCat — vive em embalagensCat/{id}/saldos/{plantaId}, uma subcoleção. Isso permite que
+// as regras do Firestore validem plantaId pelo CAMINHO do documento (algo que um mapa dinâmico
+// dentro do doc pai não permite verificar com segurança). Buscamos os saldos da planta atual com
+// uma collectionGroup query (cada subdoc grava seu próprio plantaId para viabilizar o filtro).
+window._saldos = {}; // { [embCatId]: {vazias, cheias} } — sempre relativo a window._plantaAtual
 async function loadEmbCat() {
   try {
-    const snap = await getDocs(query(collection(db,'embalagensCat'),orderBy('codigo')));
-    window._embCat = snap.docs.map(d=>({id:d.id,...d.data()}));
+    const pid = window._plantaAtual || 'matriz';
+    const [embSnap, saldosSnap] = await Promise.all([
+      getDocs(query(collection(db,'embalagensCat'),orderBy('codigo'))),
+      getDocs(query(collectionGroup(db,'saldos'), where('plantaId','==',pid)))
+    ]);
+    window._embCat = embSnap.docs.map(d=>({id:d.id,...d.data()}));
+    window._saldos = {};
+    saldosSnap.docs.forEach(d=>{
+      const embCatId = d.ref.parent.parent.id; // .../embalagensCat/{embCatId}/saldos/{plantaId}
+      window._saldos[embCatId] = { vazias: Number(d.data().vazias)||0, cheias: Number(d.data().cheias)||0 };
+    });
     renderEmbCat();
     if (document.getElementById('clientes-grid')) renderClientes();
   } catch(e){ console.error('loadEmbCat:',e); }
@@ -1365,33 +1385,63 @@ function computeSaldoVaziasFromHistorico(emb){
 function computeSaldoCheiasFromHistorico(emb){
   return getTotalSolicitacoesAtendidas(emb) - getTotalBaixasCheias(emb);
 }
-// Saldo VAZIAS: cada embalagem tem um catálogo único, mas o saldo é isolado por planta em
-// `saldoPorPlanta.{plantaId}`. Prioriza esse valor (fonte de verdade após a 1ª transação
-// gravada para a planta atual); se a planta ainda não tem saldo gravado, cai para o campo
-// legado saldoVazias/saldoCheias (apenas para a Matriz, dado que é a única planta que existia
-// antes desta funcionalidade) e, por fim, para o cálculo via histórico (migração/compat total).
-function getSaldoVazias(emb, plantaId){
-  const pid = plantaId || window._plantaAtual || 'matriz';
-  const porPlanta = emb.saldoPorPlanta?.[pid];
-  if(porPlanta?.vazias!=null) return Number(porPlanta.vazias);
-  if(pid==='matriz' && emb.saldoVazias!=null) return Number(emb.saldoVazias);
-  return pid==='matriz' ? computeSaldoVaziasFromHistorico(emb) : 0;
+// Lê, DENTRO de uma transação, o saldo real de uma planta específica de uma embalagem, a partir
+// de embalagensCat/{embCatId}/saldos/{plantaId}. Se esse subdoc ainda não existir (embalagem nunca
+// movimentada nesta planta), cai no fallback: Matriz usa os campos legados saldoVazias/saldoCheias
+// do doc pai (ou o cálculo via histórico, para dados anteriores a esta funcionalidade); qualquer
+// outra planta nova começa zerada. Retorna também a referência do subdoc, pronta para a escrita.
+async function lerSaldoPlantaTx(transaction, embCatId, plantaId, embDataPai, eLocal){
+  const saldoRef = doc(db,'embalagensCat', embCatId, 'saldos', plantaId);
+  const saldoSnap = await transaction.get(saldoRef);
+  if(saldoSnap.exists()){
+    const d = saldoSnap.data();
+    return { ref: saldoRef, vazias: Number(d.vazias)||0, cheias: Number(d.cheias)||0 };
+  }
+  if(plantaId==='matriz'){
+    const merged = {...eLocal, ...embDataPai};
+    const vazias = (embDataPai.saldoVazias!=null) ? Number(embDataPai.saldoVazias) : computeSaldoVaziasFromHistorico(merged);
+    const cheias = (embDataPai.saldoCheias!=null) ? Number(embDataPai.saldoCheias) : computeSaldoCheiasFromHistorico(merged);
+    return { ref: saldoRef, vazias, cheias };
+  }
+  return { ref: saldoRef, vazias: 0, cheias: 0 };
+}
+// Grava (DENTRO de uma transação) o novo saldo de uma planta para uma embalagem. Usa set+merge
+// (não update) porque o subdoc pode ainda não existir — é criado automaticamente na 1ª movimentação
+// da embalagem naquela planta.
+function gravarSaldoPlantaTx(transaction, saldoRef, plantaId, vazias, cheias){
+  transaction.set(saldoRef, { plantaId, vazias, cheias, atualizadoEm: serverTimestamp() }, { merge:true });
+}
+// Saldo VAZIAS: leitura de cache local (window._saldos), sempre relativa à planta atualmente
+// selecionada (window._plantaAtual) — usada em toda a UI (tabelas/formulários). Para leituras
+// com garantia transacional (fonte de verdade no servidor), ver lerSaldoPlantaTx() acima.
+function getSaldoVazias(emb){
+  const cache = window._saldos?.[emb.id];
+  if(cache) return cache.vazias;
+  // fallback legado: só se aplica à Matriz, para embalagens cadastradas antes desta funcionalidade
+  // que ainda não têm um subdoc em saldos/matriz (a migração cria esse subdoc automaticamente)
+  if((window._plantaAtual||'matriz')==='matriz'){
+    if(emb.saldoVazias!=null) return Number(emb.saldoVazias);
+    return computeSaldoVaziasFromHistorico(emb);
+  }
+  return 0;
 }
 // Saldo CHEIAS: mesma lógica de prioridade descrita acima.
-function getSaldoCheias(emb, plantaId){
-  const pid = plantaId || window._plantaAtual || 'matriz';
-  const porPlanta = emb.saldoPorPlanta?.[pid];
-  if(porPlanta?.cheias!=null) return Number(porPlanta.cheias);
-  if(pid==='matriz' && emb.saldoCheias!=null) return Number(emb.saldoCheias);
-  return pid==='matriz' ? computeSaldoCheiasFromHistorico(emb) : 0;
+function getSaldoCheias(emb){
+  const cache = window._saldos?.[emb.id];
+  if(cache) return cache.cheias;
+  if((window._plantaAtual||'matriz')==='matriz'){
+    if(emb.saldoCheias!=null) return Number(emb.saldoCheias);
+    return computeSaldoCheiasFromHistorico(emb);
+  }
+  return 0;
 }
 // Saldo TOTAL = Cheias + Vazias
-function getSaldoTotal(emb, plantaId){
-  return getSaldoVazias(emb, plantaId) + getSaldoCheias(emb, plantaId);
+function getSaldoTotal(emb){
+  return getSaldoVazias(emb) + getSaldoCheias(emb);
 }
 // Mantido por compatibilidade — saldo disponível para solicitar/baixar é o saldo de VAZIAS
-function getSaldoDisponivel(emb, plantaId){
-  return getSaldoVazias(emb, plantaId);
+function getSaldoDisponivel(emb){
+  return getSaldoVazias(emb);
 }
  
 // ── BAIXA DE SALDO ──────────────────────────────────────
@@ -1553,22 +1603,16 @@ window.confirmarBaixa = async () => {
     await runTransaction(db, async (transaction) => {
       const embSnap = await transaction.get(embRef);
       if(!embSnap.exists()) throw new Error('Embalagem não encontrada no banco de dados.');
-      const embData = embSnap.data();
-      const mergedEmb = {...eLocal, ...embData};
- 
-      // saldo atual real (server), isolado por planta: usa saldoPorPlanta[pid] se já existir;
-      // caso contrário cai no campo legado (só para Matriz) e por fim no histórico (migração)
-      const saldoVaziasAtual = getSaldoVazias(mergedEmb, pid);
-      const saldoCheiasAtual = getSaldoCheias(mergedEmb, pid);
- 
-      if(qtdVazias > saldoVaziasAtual) throw new Error(`Quantidade de VAZIAS maior que o saldo disponível (${saldoVaziasAtual}).`);
-      if(qtdCheias > saldoCheiasAtual) throw new Error(`Quantidade de CHEIAS maior que o saldo disponível (${saldoCheiasAtual}).`);
- 
-      saldoVaziasApos = saldoVaziasAtual - qtdVazias;
-      saldoCheiasApos = saldoCheiasAtual - qtdCheias;
+      const saldo = await lerSaldoPlantaTx(transaction, embCatId, pid, embSnap.data(), eLocal);
+
+      if(qtdVazias > saldo.vazias) throw new Error(`Quantidade de VAZIAS maior que o saldo disponível (${saldo.vazias}).`);
+      if(qtdCheias > saldo.cheias) throw new Error(`Quantidade de CHEIAS maior que o saldo disponível (${saldo.cheias}).`);
+
+      saldoVaziasApos = saldo.vazias - qtdVazias;
+      saldoCheiasApos = saldo.cheias - qtdCheias;
       if(saldoVaziasApos < 0 || saldoCheiasApos < 0) throw new Error('Operação resultaria em saldo negativo.');
- 
-      transaction.update(embRef, { [`saldoPorPlanta.${pid}`]: { vazias: saldoVaziasApos, cheias: saldoCheiasApos } });
+
+      gravarSaldoPlantaTx(transaction, saldo.ref, pid, saldoVaziasApos, saldoCheiasApos);
       transaction.set(novaBaixaRef, {
         dataHora, timestamp: serverTimestamp(),
         usuario, uid: window._currentUser.uid,
@@ -1581,8 +1625,7 @@ window.confirmarBaixa = async () => {
     });
  
     // reflete localmente o resultado já confirmado pela transação, sem precisar recarregar tudo do Firestore
-    const idx = window._embCat.findIndex(x=>x.id===embCatId);
-    if(idx>-1) window._embCat[idx] = { ...window._embCat[idx], saldoPorPlanta: { ...(window._embCat[idx].saldoPorPlanta||{}), [pid]: { vazias: saldoVaziasApos, cheias: saldoCheiasApos } } };
+    window._saldos[embCatId] = { vazias: saldoVaziasApos, cheias: saldoCheiasApos };
     window._baixas.unshift({
       id: novaBaixaRef.id, dataHora, timestamp: new Date(),
       usuario, uid: window._currentUser.uid,
@@ -2040,24 +2083,19 @@ window.confirmarAtender = async () => {
       if(!solSnap.exists()) throw new Error('Solicitação não encontrada no banco de dados.');
       const solData = solSnap.data();
       if(solData.status !== 'PENDENTE') throw new Error('Esta solicitação já foi processada.');
- 
-      const embData = embSnap.data();
-      const mergedEmb = {...eLocal, ...embData};
-      // saldo isolado por planta (ver getSaldoVazias/getSaldoCheias para a ordem de prioridade)
-      const saldoVaziasAtual = getSaldoVazias(mergedEmb, pid);
-      const saldoCheiasAtual = getSaldoCheias(mergedEmb, pid);
- 
-      if(qtd > saldoVaziasAtual) throw new Error(`Quantidade maior que o saldo disponível (${saldoVaziasAtual}).`);
- 
+
+      const saldo = await lerSaldoPlantaTx(transaction, embCatId, pid, embSnap.data(), eLocal);
+      if(qtd > saldo.vazias) throw new Error(`Quantidade maior que o saldo disponível (${saldo.vazias}).`);
+
       // atendimento transfere de VAZIAS para CHEIAS, dentro da mesma planta
-      saldoVaziasApos = saldoVaziasAtual - qtd;
-      saldoCheiasApos = saldoCheiasAtual + qtd;
+      saldoVaziasApos = saldo.vazias - qtd;
+      saldoCheiasApos = saldo.cheias + qtd;
       if(saldoVaziasApos < 0) throw new Error('Operação resultaria em saldo negativo.');
- 
+
       dataHora = formatDt(new Date());
       usuario  = window._currentUser.displayName || window._currentUser.email;
- 
-      transaction.update(embRef, { [`saldoPorPlanta.${pid}`]: { vazias: saldoVaziasApos, cheias: saldoCheiasApos } });
+
+      gravarSaldoPlantaTx(transaction, saldo.ref, pid, saldoVaziasApos, saldoCheiasApos);
       transaction.update(solRef, {
         status: 'ATENDIDO', qtdAtendida: qtd,
         atendidoPor: usuario, atendidoUid: window._currentUser.uid, atendidoData: dataHora
@@ -2066,8 +2104,7 @@ window.confirmarAtender = async () => {
  
     // reflete localmente o resultado já confirmado pela transação
     Object.assign(s, { status:'ATENDIDO', qtdAtendida: qtd, atendidoPor: usuario, atendidoUid: window._currentUser.uid, atendidoData: dataHora });
-    const idx = window._embCat.findIndex(x=>x.id===embCatId);
-    if(idx>-1) window._embCat[idx] = { ...window._embCat[idx], saldoPorPlanta: { ...(window._embCat[idx].saldoPorPlanta||{}), [pid]: { vazias: saldoVaziasApos, cheias: saldoCheiasApos } } };
+    window._saldos[embCatId] = { vazias: saldoVaziasApos, cheias: saldoCheiasApos };
  
     showToast('✓ Solicitação atendida!');
     registrarAuditLog({
@@ -2526,33 +2563,46 @@ window.confirmarConcluirNF = async () => {
   const dataHora = formatDt(new Date());
   const usuario = window._currentUser.displayName || window._currentUser.email;
   const nfRef = doc(db,'solicitacoes_nf', id);
-  const refs = linhas.map(it => ({...it, embRef: doc(db,'embalagensCat', it.embCatId)}));
+  const embCatIds = [...new Set(linhas.map(l=>l.embCatId))]; // uma mesma embalagem pode aparecer 2x (1 linha CHEIA + 1 linha VAZIA)
 
   try{
     await runTransaction(db, async (transaction) => {
-      // 1ª fase: leituras
-      const snaps = [];
-      for(const r of refs){
-        const snap = await transaction.get(r.embRef);
-        if(!snap.exists()) throw new Error(`Embalagem não encontrada (${r.codigo}).`);
-        snaps.push(snap);
+      // 1ª fase: leituras — uma por embalagem envolvida (nunca repete a mesma referência)
+      const embRefs = {}, embSnaps = {};
+      for(const embCatId of embCatIds){
+        const embRef = doc(db,'embalagensCat', embCatId);
+        const snap = await transaction.get(embRef);
+        if(!snap.exists()) throw new Error(`Embalagem não encontrada (${embCatId}).`);
+        embRefs[embCatId] = embRef; embSnaps[embCatId] = snap;
       }
       const nfSnap = await transaction.get(nfRef);
       if(!nfSnap.exists()) throw new Error('Solicitação não encontrada.');
       if(nfSnap.data().status==='CONCLUIDO') throw new Error('Esta solicitação já foi concluída.');
 
-      // 2ª fase: validação + escrita (tudo ou nada)
-      refs.forEach((r,i)=>{
-        const eLocal = window._embCat.find(x=>x.id===r.embCatId);
-        const mergedEmb = {...eLocal, ...snaps[i].data()};
-        const bucket = r.tipoEmbalagem==='CHEIA' ? 'cheias' : 'vazias';
-        const saldoAtual = r.tipoEmbalagem==='CHEIA' ? getSaldoCheias(mergedEmb, pid) : getSaldoVazias(mergedEmb, pid);
-        const saldoApos = saldoAtual - r.qtd;
-        if(saldoApos < 0) throw new Error(`Quantidade de ${r.codigo} (${r.tipoEmbalagem==='CHEIA'?'Cheia':'Vazia'}) maior que o saldo disponível (${saldoAtual}).`);
-        const outroBucketAtual = r.tipoEmbalagem==='CHEIA' ? getSaldoVazias(mergedEmb, pid) : getSaldoCheias(mergedEmb, pid);
-        const novoSaldo = bucket==='cheias' ? { vazias: outroBucketAtual, cheias: saldoApos } : { vazias: saldoApos, cheias: outroBucketAtual };
-        transaction.update(r.embRef, { [`saldoPorPlanta.${pid}`]: novoSaldo });
+      const saldos = {};
+      for(const embCatId of embCatIds){
+        const eLocal = window._embCat.find(x=>x.id===embCatId);
+        saldos[embCatId] = await lerSaldoPlantaTx(transaction, embCatId, pid, embSnaps[embCatId].data(), eLocal);
+      }
+
+      // 2ª fase: acumula TODAS as linhas de cada embalagem antes de validar/gravar — necessário
+      // porque a mesma embalagem pode ter uma linha CHEIA e outra VAZIA na mesma NF, e escrever
+      // duas vezes no mesmo subdoc dentro da transação faria a 2ª escrita sobrescrever a 1ª.
+      const novoSaldoPorEmb = {};
+      linhas.forEach(r=>{
+        if(!novoSaldoPorEmb[r.embCatId]) novoSaldoPorEmb[r.embCatId] = { vazias: saldos[r.embCatId].vazias, cheias: saldos[r.embCatId].cheias };
+        novoSaldoPorEmb[r.embCatId][r.tipoEmbalagem==='CHEIA' ? 'cheias' : 'vazias'] -= r.qtd;
       });
+
+      for(const embCatId of embCatIds){
+        const novo = novoSaldoPorEmb[embCatId];
+        if(novo.vazias < 0 || novo.cheias < 0){
+          const codigo = linhas.find(l=>l.embCatId===embCatId)?.codigo || embCatId;
+          throw new Error(`Quantidade de ${codigo} maior que o saldo disponível.`);
+        }
+        gravarSaldoPlantaTx(transaction, saldos[embCatId].ref, pid, novo.vazias, novo.cheias);
+      }
+
       transaction.update(nfRef, {
         itens: linhas, transportadora, numeroNF,
         status: 'CONCLUIDO',
@@ -2560,16 +2610,16 @@ window.confirmarConcluirNF = async () => {
       });
     });
 
-    // reflete localmente
-    refs.forEach(r=>{
-      const idx = window._embCat.findIndex(x=>x.id===r.embCatId);
-      if(idx<0) return;
-      const eAtual = window._embCat[idx];
-      const bucket = r.tipoEmbalagem==='CHEIA' ? 'cheias' : 'vazias';
-      const atual = { vazias: getSaldoVazias(eAtual, pid), cheias: getSaldoCheias(eAtual, pid) };
-      atual[bucket] = atual[bucket] - r.qtd;
-      window._embCat[idx] = { ...eAtual, saldoPorPlanta: { ...(eAtual.saldoPorPlanta||{}), [pid]: atual } };
+    // reflete localmente (mesma agregação por embalagem usada na transação)
+    const porEmb = {};
+    linhas.forEach(r=>{
+      if(!porEmb[r.embCatId]){
+        const eAtual = window._embCat.find(x=>x.id===r.embCatId) || {id:r.embCatId};
+        porEmb[r.embCatId] = { vazias: getSaldoVazias(eAtual), cheias: getSaldoCheias(eAtual) };
+      }
+      porEmb[r.embCatId][r.tipoEmbalagem==='CHEIA' ? 'cheias' : 'vazias'] -= r.qtd;
     });
+    Object.entries(porEmb).forEach(([embCatId, saldo])=>{ window._saldos[embCatId] = saldo; });
     Object.assign(nf, { itens: linhas, transportadora, numeroNF, status:'CONCLUIDO', concluidoPor:usuario, concluidoUid:window._currentUser.uid, concluidoData:dataHora });
     registrarAuditLog({
       tipoEvento:'SAIDA_NF', codigoItem: linhas.map(l=>l.codigo).join(', '), cliente: nf.clienteNome,
@@ -3039,7 +3089,7 @@ window.confirmarInventario = async () => {
   const uid      = window._currentUser.uid;
   const pid      = window._plantaAtual || 'matriz';
  
-  // 1 doc de embalagem (destino do novo saldo) + 1 doc de ajuste (histórico) por linha alterada
+  // 1 doc de embalagem (só para confirmar existência) + 1 doc de ajuste (histórico) por linha alterada
   const refs = linhasAlteradas.map(r=>({
     ...r,
     embRef: doc(db,'embalagensCat', r.embCatId),
@@ -3053,50 +3103,46 @@ window.confirmarInventario = async () => {
     await runTransaction(db, async (transaction) => {
       resultados = []; // reset a cada tentativa, pois a transação pode ser reexecutada em caso de conflito
  
-      // 1ª fase: todas as leituras, antes de qualquer escrita (exigência do Firestore)
-      const snaps = [];
+      // 1ª fase: todas as leituras, antes de qualquer escrita (exigência do Firestore) —
+      // doc da embalagem (existência) + subdoc de saldo da planta atual, para cada linha
+      const lidos = [];
       for(const r of refs){
-        const snap = await transaction.get(r.embRef);
-        if(!snap.exists()) throw new Error(`Embalagem não encontrada no banco de dados (${r.embCatId}).`);
-        snaps.push(snap);
+        const embSnap = await transaction.get(r.embRef);
+        if(!embSnap.exists()) throw new Error(`Embalagem não encontrada no banco de dados (${r.embCatId}).`);
+        const eLocal = window._embCat.find(x=>x.id===r.embCatId);
+        const saldo = await lerSaldoPlantaTx(transaction, r.embCatId, pid, embSnap.data(), eLocal);
+        lidos.push({ eLocal, saldo });
       }
  
       // 2ª fase: validações + escritas
       refs.forEach((r, i) => {
-        const embData = snaps[i].data();
-        const eLocal  = window._embCat.find(x=>x.id===r.embCatId);
-        // saldo real no servidor no momento da transação, isolado por planta (persistido ou calculado do histórico — migração)
-        const mergedEmb = {...eLocal, ...embData};
-        const cheiasServidor = getSaldoCheias(mergedEmb, pid);
-        const vaziasServidor = getSaldoVazias(mergedEmb, pid);
- 
+        const { eLocal, saldo } = lidos[i];
         if(r.cheiasNovo < 0 || r.vaziasNovo < 0){
           throw new Error(`Saldo apurado não pode ser negativo (${eLocal?.codigo||r.embCatId}).`);
         }
  
-        transaction.update(r.embRef, { [`saldoPorPlanta.${pid}`]: { cheias: r.cheiasNovo, vazias: r.vaziasNovo } });
+        gravarSaldoPlantaTx(transaction, saldo.ref, pid, r.vaziasNovo, r.cheiasNovo);
         transaction.set(r.ajusteRef, {
           dataHora, timestamp: serverTimestamp(),
           usuario, uid,
           plantaId: pid,
           clienteId: cliId, clienteNome: cli?.nome||'',
           codigo: eLocal?.codigo||'', embCatId: r.embCatId,
-          cheiasAntes: cheiasServidor, cheiasDepois: r.cheiasNovo,
-          vaziasAntes: vaziasServidor, vaziasDepois: r.vaziasNovo
+          cheiasAntes: saldo.cheias, cheiasDepois: r.cheiasNovo,
+          vaziasAntes: saldo.vazias, vaziasDepois: r.vaziasNovo
         });
  
         resultados.push({
           embCatId: r.embCatId, codigo: eLocal?.codigo||'', ajusteId: r.ajusteRef.id,
           saldoCheias: r.cheiasNovo, saldoVazias: r.vaziasNovo,
-          cheiasAntes: cheiasServidor, vaziasAntes: vaziasServidor
+          cheiasAntes: saldo.cheias, vaziasAntes: saldo.vazias
         });
       });
     });
  
     // reflete localmente os resultados já confirmados pela transação
     resultados.forEach(res=>{
-      const idx = window._embCat.findIndex(x=>x.id===res.embCatId);
-      if(idx>-1) window._embCat[idx] = { ...window._embCat[idx], saldoPorPlanta: { ...(window._embCat[idx].saldoPorPlanta||{}), [pid]: { vazias: res.saldoVazias, cheias: res.saldoCheias } } };
+      window._saldos[res.embCatId] = { vazias: res.saldoVazias, cheias: res.saldoCheias };
       window._ajustesInventario.unshift({
         id: res.ajusteId, dataHora, timestamp: new Date(),
         usuario, uid, plantaId: pid, clienteId: cliId, clienteNome: cli?.nome||'',

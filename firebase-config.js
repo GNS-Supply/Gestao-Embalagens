@@ -11,7 +11,7 @@ import {
   sendPasswordResetEmail, signOut, onAuthStateChanged, updateProfile
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import {
-  getFirestore, collection, addDoc, getDocs, getDoc, setDoc, deleteDoc, doc,
+  getFirestore, collection, collectionGroup, addDoc, getDocs, getDoc, setDoc, deleteDoc, doc,
   updateDoc, query, orderBy, where, serverTimestamp, runTransaction, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import {
@@ -67,7 +67,7 @@ export async function onMessagingReady(callback) {
 export {
   createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail,
   signOut, onAuthStateChanged, updateProfile,
-  collection, addDoc, getDocs, getDoc, setDoc, deleteDoc, doc, updateDoc,
+  collection, collectionGroup, addDoc, getDocs, getDoc, setDoc, deleteDoc, doc, updateDoc,
   query, orderBy, where, serverTimestamp, runTransaction, onSnapshot,
   getToken
 };
