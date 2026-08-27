@@ -66,6 +66,60 @@ async function registrarAuditLog(dados) {
 }
 window.registrarAuditLog = registrarAuditLog;
 
+// ── MIGRAÇÃO ÚNICA: multi-planta ────────────────────────────────────────
+// Antes desta funcionalidade, todo o sistema operava como uma única planta implícita.
+// Rode UMA VEZ, logado como administrador (console do navegador, F12):  migrarParaMultiPlanta()
+// O que ela faz:
+//  1) Garante que a planta 'matriz' existe (loadPlantas() já faz isso, mas reforça aqui).
+//  2) Grava plantaId:'matriz' em todo documento de registros / baixas_embalagens /
+//     solicitacoes_embalagens / ajustes_inventario que ainda não tenha esse campo.
+//  3) Copia o saldo legado (saldoVazias/saldoCheias) de cada embalagensCat para
+//     saldoPorPlanta.matriz, preservando o saldo já existente.
+//  4) Define plantaPadrao:'matriz' em usuários que ainda não tenham planta padrão definida.
+// Documentos criados a partir de agora já nascem com plantaId — esta migração não precisa
+// rodar de novo.
+window.migrarParaMultiPlanta = async function(){
+  if (window._userRole!=='administrador' && !isAdmMaster()) { console.warn('Apenas administrador pode rodar a migração.'); return; }
+  await setDoc(doc(db,'plantas','matriz'), { nome:'Matriz', codigo:'MTZ', ativa:true }, { merge:true });
+
+  async function backfill(colecao){
+    const snap = await getDocs(collection(db,colecao));
+    let atualizados=0, jaOk=0;
+    for(const d of snap.docs){
+      if(d.data().plantaId){ jaOk++; continue; }
+      await updateDoc(doc(db,colecao,d.id), { plantaId:'matriz' });
+      atualizados++;
+    }
+    console.log(`[migração] ${colecao}: ${atualizados} atualizado(s), ${jaOk} já com plantaId.`);
+  }
+  await backfill('registros');
+  await backfill('baixas_embalagens');
+  await backfill('solicitacoes_embalagens');
+  await backfill('ajustes_inventario');
+
+  const embSnap = await getDocs(collection(db,'embalagensCat'));
+  let embAtualizadas=0;
+  for(const d of embSnap.docs){
+    const e = d.data();
+    if(e.saldoPorPlanta?.matriz) continue;
+    await updateDoc(doc(db,'embalagensCat',d.id), {
+      [`saldoPorPlanta.matriz`]: { vazias: Number(e.saldoVazias)||0, cheias: Number(e.saldoCheias)||0 }
+    });
+    embAtualizadas++;
+  }
+  console.log(`[migração] embalagensCat: ${embAtualizadas} inicializada(s) com saldoPorPlanta.matriz.`);
+
+  const usersSnap = await getDocs(collection(db,'usuarios'));
+  let usersAtualizados=0;
+  for(const d of usersSnap.docs){
+    if(d.data().plantaPadrao) continue;
+    await updateDoc(doc(db,'usuarios',d.id), { plantaPadrao:'matriz' });
+    usersAtualizados++;
+  }
+  console.log(`[migração] usuarios: ${usersAtualizados} definido(s) com plantaPadrao:'matriz'.`);
+  console.log('[migração] Concluída! Recarregue a página.');
+};
+
 // ROLES: visualizador | operador | administrador
 const ROLE_LABELS = { visualizador:'Visualizador', operador:'Operador', administrador:'Administrador' };
  
@@ -77,7 +131,8 @@ const TIPO_EVENTO_LABELS = {
   ENTRADA:            'Entrada de Estoque',
   SAIDA_BAIXA:        'Saída – Baixa Manual',
   SAIDA_SOLICITACAO:  'Saída – Solicitação Atendida',
-  AJUSTE_INVENTARIO:  'Ajuste de Inventário'
+  AJUSTE_INVENTARIO:  'Ajuste de Inventário',
+  SAIDA_NF:           'Saída – Solicitação de NF'
 };
  
 // ── MIGRAÇÃO ÚNICA: usuarios com ID do documento = UID ──────────────────
@@ -104,6 +159,9 @@ window._embCat      = [];
 window._baixas      = [];
 window._solicitacoes = [];
 window._ajustesInventario = [];
+window._plantas      = [];
+window._plantaAtual  = 'matriz'; // planta cujo contexto está sendo exibido/editado agora
+window._plantaPadrao = 'matriz'; // planta padrão do usuário logado (só admMaster pode divergir de _plantaAtual)
 window._fotos       = [];
 window._currentUser = null;
 window._userRole    = 'visualizador';
@@ -243,12 +301,16 @@ onAuthStateChanged(auth, async (user) => {
       if (ud) {
         window._userRole = ud.perfil || 'operador';
         window._isAdmMaster = ud.admMaster === true;
+        window._plantaPadrao = ud.plantaPadrao || 'matriz';
+        window._plantaAtual  = window._plantaPadrao;
         if (ud.ativo === false) { await signOut(auth); showAuthErr('Sua conta está bloqueada. Contate o administrador.'); return; }
       } else {
         window._userRole = 'operador';
         window._isAdmMaster = false;
+        window._plantaPadrao = 'matriz';
+        window._plantaAtual  = 'matriz';
       }
-    } catch(e) { window._userRole = 'operador'; }
+    } catch(e) { window._userRole = 'operador'; window._plantaPadrao = 'matriz'; window._plantaAtual = 'matriz'; }
  
     document.getElementById('auth-screen').style.display = 'none';
     document.getElementById('app').style.display = 'block';
@@ -262,13 +324,15 @@ onAuthStateChanged(auth, async (user) => {
     atualizarUINotificacoes();
     if(('Notification' in window) && Notification.permission==='granted') obterESalvarTokenFCM();
     iniciarSincronizacaoTema();
-    await Promise.all([loadClientes(), loadEmbCat(), loadRegistros(), loadConfiguracoes(), loadBaixas(), loadSolicitacoes(), loadAjustesInventario()]);
+    await loadPlantas();
+    await Promise.all([loadClientes(), loadEmbCat(), loadRegistros(), loadConfiguracoes(), loadBaixas(), loadSolicitacoes(), loadAjustesInventario(), loadSolicitacoesNF()]);
     addEmbRow();
   } else {
     window._currentUser = null;
-    window._registros = []; window._clientes = []; window._embCat = [];
-    if(_solUnsub){ _solUnsub(); _solUnsub = null; }
-    if(_regUnsub){ _regUnsub(); _regUnsub = null; }
+    window._registros = []; window._clientes = []; window._embCat = []; window._plantas = []; window._solicitacoesNF = [];
+    if(_solUnsub){ _solUnsub(); _solUnsub = null; _solUnsubPlanta = null; }
+    if(_nfUnsub){ _nfUnsub(); _nfUnsub = null; _nfUnsubPlanta = null; }
+    if(_regUnsub){ _regUnsub(); _regUnsub = null; _regUnsubPlanta = null; }
     pararSincronizacaoTema();
     document.getElementById('auth-screen').style.display = 'flex';
     document.getElementById('app').style.display = 'none';
@@ -312,6 +376,13 @@ function applyRoleUI() {
 
   if (cfgCard) {
     cfgCard.style.display = canAdmin ? 'block' : 'none';
+  }
+
+  // Cadastro de Plantas — somente administrador
+  const plantasCard = document.getElementById('plantas-card');
+
+  if (plantasCard) {
+    plantasCard.style.display = canAdmin ? 'block' : 'none';
   }
 
   // Configuração de aparência — somente administrador
@@ -597,14 +668,16 @@ function applyModuloEstoqueUI() {
   const ativo = window._moduloEstoqueAtivo;
   const navBaixa = document.getElementById('nav-baixa');
   const navSol   = document.getElementById('nav-solicitacoes');
+  const navNF    = document.getElementById('nav-nf');
   if (navBaixa) navBaixa.style.display = ativo ? '' : 'none';
   if (navSol)   navSol.style.display   = ativo ? '' : 'none';
+  if (navNF)    navNF.style.display    = ativo ? '' : 'none';
   const chk = document.getElementById('toggle-modulo-estoque');
   if (chk) chk.checked = ativo;
   // se o usuário estiver numa das abas e o módulo for desabilitado, volta para Registro
   if (!ativo) {
     const activePage = document.querySelector('.page.active');
-    if (activePage && (activePage.id === 'tab-baixa' || activePage.id === 'tab-solicitacoes')) switchTab('registro');
+    if (activePage && (activePage.id === 'tab-baixa' || activePage.id === 'tab-solicitacoes' || activePage.id === 'tab-nf')) switchTab('registro');
   }
   if (document.getElementById('embcat-grid')) renderEmbCat();
   if (document.getElementById('modal-cliente-embalagens')?.classList.contains('open')) renderClienteEmbalagensModal();
@@ -719,6 +792,137 @@ window.atualizarTemaAdminUI = () => {
   }
 };
   
+// ── PLANTAS ────────────────────────────────────────────
+// Toda embalagem/registro/baixa/solicitação/inventário passa a pertencer a uma "planta"
+// (Matriz ou uma Filial). A planta "matriz" é criada automaticamente (ID fixo 'matriz') na
+// primeira execução, preservando compatibilidade com todos os dados já existentes no sistema
+// (documentos antigos sem o campo plantaId são sempre tratados como pertencentes à Matriz).
+async function loadPlantas(){
+  try{
+    const snap = await getDocs(query(collection(db,'plantas'), orderBy('nome')));
+    window._plantas = snap.docs.map(d=>({id:d.id,...d.data()}));
+    if(!window._plantas.some(p=>p.id==='matriz')){
+      await setDoc(doc(db,'plantas','matriz'), { nome:'Matriz', codigo:'MTZ', ativa:true, criadoEm: serverTimestamp() });
+      window._plantas.unshift({ id:'matriz', nome:'Matriz', codigo:'MTZ', ativa:true });
+    }
+    populatePlantaSelects();
+    renderPlantaSelectorTopbar();
+    renderPlantas();
+  }catch(e){ console.error('loadPlantas:', e); }
+}
+window.loadPlantas = loadPlantas;
+
+// preenche todos os <select> de planta do sistema (topbar, admin, futura tela de NF)
+function populatePlantaSelects(){
+  const opts = window._plantas
+    .filter(p=>p.ativa!==false || p.id===window._plantaAtual)
+    .map(p=>`<option value="${p.id}">${esc(p.nome)}${p.codigo?` (${esc(p.codigo)})`:''}</option>`).join('');
+  document.querySelectorAll('.planta-select-auto').forEach(sel=>{
+    const cur = sel.value;
+    sel.innerHTML = opts;
+    if(cur && [...sel.options].some(o=>o.value===cur)) sel.value = cur;
+  });
+}
+
+// só ADM-MASTER pode navegar entre plantas; os demais usuários ficam travados na sua planta padrão
+function renderPlantaSelectorTopbar(){
+  const wrap = document.getElementById('planta-indicator-wrap');
+  const sel  = document.getElementById('topbar-planta-select');
+  const badge= document.getElementById('planta-badge');
+  if(!wrap || !sel || !badge) return;
+  const planta = window._plantas.find(p=>p.id===window._plantaAtual);
+  const nomeAtual = planta?.nome || 'Matriz';
+  if(isAdmMaster() && window._plantas.length>1){
+    sel.innerHTML = window._plantas.map(p=>`<option value="${p.id}">${esc(p.nome)}${p.codigo?` (${esc(p.codigo)})`:''}</option>`).join('');
+    sel.value = window._plantaAtual;
+    sel.style.display = 'inline-block';
+    badge.style.display = 'none';
+  } else {
+    sel.style.display = 'none';
+    badge.style.display = 'inline-flex';
+    badge.textContent = `🏭 ${nomeAtual}`;
+  }
+  const diferente = window._plantaAtual !== window._plantaPadrao;
+  wrap.classList.toggle('planta-diferente', diferente);
+  wrap.title = diferente ? `Você está visualizando a planta ${nomeAtual}, diferente da sua planta padrão.` : '';
+  wrap.style.display = 'flex';
+}
+
+// disparado pelo <select> do topbar (visível somente para ADM-MASTER)
+window.onPlantaSelectChange = async (plantaId) => {
+  window._plantaAtual = plantaId;
+  renderPlantaSelectorTopbar();
+  showToast(`Contexto alterado para: ${window._plantas.find(p=>p.id===plantaId)?.nome || plantaId}`);
+  // recarrega todas as visões dependentes de planta com o novo contexto
+  await Promise.all([loadEmbCat(), loadRegistros(), loadBaixas(), loadSolicitacoes(), loadAjustesInventario(), loadSolicitacoesNF()]);
+  switchTab(window._tabAtual || 'registro');
+};
+
+function renderPlantas(){
+  const list = document.getElementById('plantas-list');
+  if(!list) return;
+  if(!window._plantas.length){ list.innerHTML = `<div class="empty-state"><p>Nenhuma planta cadastrada.</p></div>`; return; }
+  list.innerHTML = window._plantas.map(p=>`
+    <div class="user-row">
+      <div class="user-info">
+        <div class="uname">${esc(p.nome)}${p.id==='matriz'?' <span style="color:var(--text3);font-size:11px;">(padrão do sistema)</span>':''}</div>
+        <div class="uemail">Código: ${esc(p.codigo||'–')}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span class="user-status ${p.ativa!==false?'status-active':'status-blocked'} role-tag">${p.ativa!==false?'Ativa':'Inativa'}</span>
+        <button class="btn btn-secondary btn-sm" onclick="openModalPlanta('${p.id}')">Editar</button>
+        ${p.id!=='matriz' ? `<button class="btn btn-secondary btn-sm" onclick="togglePlantaAtiva('${p.id}',${p.ativa===false})">${p.ativa!==false?'Desativar':'Ativar'}</button>` : ''}
+      </div>
+    </div>`).join('');
+}
+
+window.openModalPlanta = (id) => {
+  document.getElementById('modal-planta-error').style.display='none';
+  document.getElementById('planta-edit-id').value = id||'';
+  if(id){
+    const p = window._plantas.find(x=>x.id===id);
+    document.getElementById('modal-planta-title').textContent = 'Editar Planta';
+    document.getElementById('planta-nome').value = p?.nome||'';
+    document.getElementById('planta-codigo').value = p?.codigo||'';
+  } else {
+    document.getElementById('modal-planta-title').textContent = 'Nova Planta';
+    document.getElementById('planta-nome').value = '';
+    document.getElementById('planta-codigo').value = '';
+  }
+  document.getElementById('modal-planta').classList.add('open');
+};
+
+window.salvarPlanta = async () => {
+  if(window._userRole!=='administrador' && !isAdmMaster()){ showToast('Sem permissão.', true); return; }
+  const errEl = document.getElementById('modal-planta-error');
+  errEl.style.display='none';
+  const id = document.getElementById('planta-edit-id').value;
+  const nome = document.getElementById('planta-nome').value.trim();
+  const codigo = document.getElementById('planta-codigo').value.trim().toUpperCase();
+  if(!nome || !codigo){ errEl.textContent='Preencha nome e código da planta.'; errEl.style.display='block'; return; }
+  const codigoDuplicado = window._plantas.some(p=>p.codigo?.toUpperCase()===codigo && p.id!==id);
+  if(codigoDuplicado){ errEl.textContent='Já existe uma planta com este código.'; errEl.style.display='block'; return; }
+  try{
+    if(id){
+      await updateDoc(doc(db,'plantas',id), { nome, codigo });
+    } else {
+      await addDoc(collection(db,'plantas'), { nome, codigo, ativa:true, criadoEm: serverTimestamp() });
+    }
+    showToast('✓ Planta salva.');
+    closeModal('modal-planta');
+    await loadPlantas();
+  }catch(e){ errEl.textContent = 'Erro: '+e.message; errEl.style.display='block'; }
+};
+
+window.togglePlantaAtiva = async (id, ativar) => {
+  if(window._userRole!=='administrador' && !isAdmMaster()){ showToast('Sem permissão.', true); return; }
+  try{
+    await updateDoc(doc(db,'plantas',id), { ativa: ativar });
+    showToast(ativar ? '✓ Planta ativada.' : '✓ Planta desativada.');
+    await loadPlantas();
+  }catch(e){ showToast('Erro: '+e.message, true); }
+};
+
 // ── CLIENTES ───────────────────────────────────────────
 async function loadClientes() {
   try {
@@ -750,6 +954,10 @@ function populateClienteSelects() {
   if (filterSolCliSel) filterSolCliSel.innerHTML = '<option value="">Todos os clientes</option>' + opts;
   const invCliSel = document.getElementById('inv-cli');
   if (invCliSel) { const cur=invCliSel.value; invCliSel.innerHTML = '<option value="">— Selecione o cliente —</option>' + opts; if (cur) invCliSel.value = cur; }
+  const nfCliSel = document.getElementById('nf-cliente');
+  if (nfCliSel) { const cur=nfCliSel.value; nfCliSel.innerHTML = '<option value="">— Selecione o cliente —</option>' + opts; if (cur) nfCliSel.value = cur; }
+  const filterNfCliSel = document.getElementById('filter-nf-cli');
+  if (filterNfCliSel) filterNfCliSel.innerHTML = '<option value="">Todos os clientes</option>' + opts;
   // refresh any per-row cliente selects already rendered in "+ Registro", preserving selection
   document.querySelectorAll('.emb-cli').forEach(sel=>{
     const cur = sel.value;
@@ -1157,28 +1365,40 @@ function computeSaldoVaziasFromHistorico(emb){
 function computeSaldoCheiasFromHistorico(emb){
   return getTotalSolicitacoesAtendidas(emb) - getTotalBaixasCheias(emb);
 }
-// Saldo VAZIAS: prioriza o valor persistido no documento (fonte de verdade após a 1ª transação
-// gravada nele); se ainda não existir, calcula a partir do histórico (compatibilidade com dados antigos).
-function getSaldoVazias(emb){
-  return (emb.saldoVazias!=null) ? Number(emb.saldoVazias) : computeSaldoVaziasFromHistorico(emb);
+// Saldo VAZIAS: cada embalagem tem um catálogo único, mas o saldo é isolado por planta em
+// `saldoPorPlanta.{plantaId}`. Prioriza esse valor (fonte de verdade após a 1ª transação
+// gravada para a planta atual); se a planta ainda não tem saldo gravado, cai para o campo
+// legado saldoVazias/saldoCheias (apenas para a Matriz, dado que é a única planta que existia
+// antes desta funcionalidade) e, por fim, para o cálculo via histórico (migração/compat total).
+function getSaldoVazias(emb, plantaId){
+  const pid = plantaId || window._plantaAtual || 'matriz';
+  const porPlanta = emb.saldoPorPlanta?.[pid];
+  if(porPlanta?.vazias!=null) return Number(porPlanta.vazias);
+  if(pid==='matriz' && emb.saldoVazias!=null) return Number(emb.saldoVazias);
+  return pid==='matriz' ? computeSaldoVaziasFromHistorico(emb) : 0;
 }
-// Saldo CHEIAS: mesma lógica de prioridade do saldo persistido descrita acima.
-function getSaldoCheias(emb){
-  return (emb.saldoCheias!=null) ? Number(emb.saldoCheias) : computeSaldoCheiasFromHistorico(emb);
+// Saldo CHEIAS: mesma lógica de prioridade descrita acima.
+function getSaldoCheias(emb, plantaId){
+  const pid = plantaId || window._plantaAtual || 'matriz';
+  const porPlanta = emb.saldoPorPlanta?.[pid];
+  if(porPlanta?.cheias!=null) return Number(porPlanta.cheias);
+  if(pid==='matriz' && emb.saldoCheias!=null) return Number(emb.saldoCheias);
+  return pid==='matriz' ? computeSaldoCheiasFromHistorico(emb) : 0;
 }
 // Saldo TOTAL = Cheias + Vazias
-function getSaldoTotal(emb){
-  return getSaldoVazias(emb) + getSaldoCheias(emb);
+function getSaldoTotal(emb, plantaId){
+  return getSaldoVazias(emb, plantaId) + getSaldoCheias(emb, plantaId);
 }
 // Mantido por compatibilidade — saldo disponível para solicitar/baixar é o saldo de VAZIAS
-function getSaldoDisponivel(emb){
-  return getSaldoVazias(emb);
+function getSaldoDisponivel(emb, plantaId){
+  return getSaldoVazias(emb, plantaId);
 }
  
 // ── BAIXA DE SALDO ──────────────────────────────────────
 async function loadBaixas(){
   try{
-    const snap = await getDocs(query(collection(db,'baixas_embalagens'),orderBy('timestamp','desc')));
+    const pid = window._plantaAtual || 'matriz';
+    const snap = await getDocs(query(collection(db,'baixas_embalagens'), where('plantaId','==',pid), orderBy('timestamp','desc')));
     window._baixas = snap.docs.map(d=>({id:d.id,...d.data()}));
   }catch(e){ console.error('loadBaixas:',e); }
 }
@@ -1324,6 +1544,7 @@ window.confirmarBaixa = async () => {
   const dataHora = formatDt(new Date());
   const usuario = window._currentUser.displayName || window._currentUser.email;
   const qtdTotalBaixada = qtdVazias + qtdCheias;
+  const pid = window._plantaAtual || 'matriz';
  
   try{
     let saldoVaziasApos, saldoCheiasApos;
@@ -1333,11 +1554,12 @@ window.confirmarBaixa = async () => {
       const embSnap = await transaction.get(embRef);
       if(!embSnap.exists()) throw new Error('Embalagem não encontrada no banco de dados.');
       const embData = embSnap.data();
+      const mergedEmb = {...eLocal, ...embData};
  
-      // saldo atual real (server): usa o campo persistido se já existir; caso contrário
-      // calcula a partir do histórico (migração — primeira transação gravada nesta embalagem)
-      const saldoVaziasAtual = (embData.saldoVazias!=null) ? Number(embData.saldoVazias) : computeSaldoVaziasFromHistorico({...eLocal, ...embData});
-      const saldoCheiasAtual = (embData.saldoCheias!=null) ? Number(embData.saldoCheias) : computeSaldoCheiasFromHistorico({...eLocal, ...embData});
+      // saldo atual real (server), isolado por planta: usa saldoPorPlanta[pid] se já existir;
+      // caso contrário cai no campo legado (só para Matriz) e por fim no histórico (migração)
+      const saldoVaziasAtual = getSaldoVazias(mergedEmb, pid);
+      const saldoCheiasAtual = getSaldoCheias(mergedEmb, pid);
  
       if(qtdVazias > saldoVaziasAtual) throw new Error(`Quantidade de VAZIAS maior que o saldo disponível (${saldoVaziasAtual}).`);
       if(qtdCheias > saldoCheiasAtual) throw new Error(`Quantidade de CHEIAS maior que o saldo disponível (${saldoCheiasAtual}).`);
@@ -1346,10 +1568,11 @@ window.confirmarBaixa = async () => {
       saldoCheiasApos = saldoCheiasAtual - qtdCheias;
       if(saldoVaziasApos < 0 || saldoCheiasApos < 0) throw new Error('Operação resultaria em saldo negativo.');
  
-      transaction.update(embRef, { saldoVazias: saldoVaziasApos, saldoCheias: saldoCheiasApos });
+      transaction.update(embRef, { [`saldoPorPlanta.${pid}`]: { vazias: saldoVaziasApos, cheias: saldoCheiasApos } });
       transaction.set(novaBaixaRef, {
         dataHora, timestamp: serverTimestamp(),
         usuario, uid: window._currentUser.uid,
+        plantaId: pid,
         clienteId, clienteNome: cli?.nome||'',
         codigo, embCatId,
         qtdVazias, qtdCheias, qtdTotalBaixada, obs,
@@ -1359,10 +1582,11 @@ window.confirmarBaixa = async () => {
  
     // reflete localmente o resultado já confirmado pela transação, sem precisar recarregar tudo do Firestore
     const idx = window._embCat.findIndex(x=>x.id===embCatId);
-    if(idx>-1) window._embCat[idx] = { ...window._embCat[idx], saldoVazias: saldoVaziasApos, saldoCheias: saldoCheiasApos };
+    if(idx>-1) window._embCat[idx] = { ...window._embCat[idx], saldoPorPlanta: { ...(window._embCat[idx].saldoPorPlanta||{}), [pid]: { vazias: saldoVaziasApos, cheias: saldoCheiasApos } } };
     window._baixas.unshift({
       id: novaBaixaRef.id, dataHora, timestamp: new Date(),
       usuario, uid: window._currentUser.uid,
+      plantaId: pid,
       clienteId, clienteNome: cli?.nome||'',
       codigo, embCatId, qtdVazias, qtdCheias, qtdTotalBaixada, obs,
       saldoVaziasApos, saldoCheiasApos
@@ -1530,10 +1754,14 @@ function renderHistorico(){
 }
  
 // ── SOLICITAÇÕES DE EMBALAGENS ──────────────────────────
+let _solUnsubPlanta = null;
 async function loadSolicitacoes(){
-  // já existe um listener em tempo real ativo — apenas garante que a tela reflita os dados atuais
-  if(_solUnsub){ renderSolicitacoes(); return; }
-  const q = query(collection(db,'solicitacoes_embalagens'),orderBy('timestamp','desc'));
+  const pid = window._plantaAtual || 'matriz';
+  // já existe um listener em tempo real ativo para esta mesma planta — apenas garante que a tela reflita os dados atuais
+  if(_solUnsub && _solUnsubPlanta===pid){ renderSolicitacoes(); return; }
+  if(_solUnsub){ _solUnsub(); _solUnsub=null; } // planta mudou: encerra o listener anterior antes de abrir um novo
+  _solUnsubPlanta = pid;
+  const q = query(collection(db,'solicitacoes_embalagens'), where('plantaId','==',pid), orderBy('timestamp','desc'));
   let primeiraCarga = true;
   _solUnsub = onSnapshot(q, (snap)=>{
     window._solicitacoes = snap.docs.map(d=>({id:d.id,...d.data()}));
@@ -1572,7 +1800,8 @@ window.loadSolicitacoes = loadSolicitacoes;
 // ── AJUSTES DE INVENTÁRIO (histórico de apurações) ──────
 async function loadAjustesInventario(){
   try{
-    const snap = await getDocs(query(collection(db,'ajustes_inventario'),orderBy('timestamp','desc')));
+    const pid = window._plantaAtual || 'matriz';
+    const snap = await getDocs(query(collection(db,'ajustes_inventario'), where('plantaId','==',pid), orderBy('timestamp','desc')));
     window._ajustesInventario = snap.docs.map(d=>({id:d.id,...d.data()}));
   }catch(e){ console.error('loadAjustesInventario:',e); }
 }
@@ -1687,6 +1916,7 @@ window.salvarSolicitacao = async () => {
     const usuario = window._currentUser.displayName || window._currentUser.email;
     const data = {
       clienteId: cliId, clienteNome: cli?.nome||'',
+      plantaId: window._plantaAtual || 'matriz',
       embCatId: embId, codigo: e.codigo, descricao: e.descricao||'',
       qtdSolicitada: qtd, qtdAtendida: 0, status: 'PENDENTE',
       solicitadoPor: usuario, solicitadoUid: window._currentUser.uid, solicitadoData: dataHora,
@@ -1796,6 +2026,7 @@ window.confirmarAtender = async () => {
  
   const embRef = doc(db,'embalagensCat', embCatId);
   const solRef = doc(db,'solicitacoes_embalagens', id);
+  const pid = s.plantaId || window._plantaAtual || 'matriz';
   let saldoVaziasApos, saldoCheiasApos, dataHora, usuario;
  
   try{
@@ -1811,13 +2042,14 @@ window.confirmarAtender = async () => {
       if(solData.status !== 'PENDENTE') throw new Error('Esta solicitação já foi processada.');
  
       const embData = embSnap.data();
-      // migração: se ainda não houver saldo persistido, usa o calculado a partir do histórico
-      const saldoVaziasAtual = (embData.saldoVazias!=null) ? Number(embData.saldoVazias) : computeSaldoVaziasFromHistorico({...eLocal, ...embData});
-      const saldoCheiasAtual = (embData.saldoCheias!=null) ? Number(embData.saldoCheias) : computeSaldoCheiasFromHistorico({...eLocal, ...embData});
+      const mergedEmb = {...eLocal, ...embData};
+      // saldo isolado por planta (ver getSaldoVazias/getSaldoCheias para a ordem de prioridade)
+      const saldoVaziasAtual = getSaldoVazias(mergedEmb, pid);
+      const saldoCheiasAtual = getSaldoCheias(mergedEmb, pid);
  
       if(qtd > saldoVaziasAtual) throw new Error(`Quantidade maior que o saldo disponível (${saldoVaziasAtual}).`);
  
-      // atendimento transfere de VAZIAS para CHEIAS
+      // atendimento transfere de VAZIAS para CHEIAS, dentro da mesma planta
       saldoVaziasApos = saldoVaziasAtual - qtd;
       saldoCheiasApos = saldoCheiasAtual + qtd;
       if(saldoVaziasApos < 0) throw new Error('Operação resultaria em saldo negativo.');
@@ -1825,7 +2057,7 @@ window.confirmarAtender = async () => {
       dataHora = formatDt(new Date());
       usuario  = window._currentUser.displayName || window._currentUser.email;
  
-      transaction.update(embRef, { saldoVazias: saldoVaziasApos, saldoCheias: saldoCheiasApos });
+      transaction.update(embRef, { [`saldoPorPlanta.${pid}`]: { vazias: saldoVaziasApos, cheias: saldoCheiasApos } });
       transaction.update(solRef, {
         status: 'ATENDIDO', qtdAtendida: qtd,
         atendidoPor: usuario, atendidoUid: window._currentUser.uid, atendidoData: dataHora
@@ -1835,7 +2067,7 @@ window.confirmarAtender = async () => {
     // reflete localmente o resultado já confirmado pela transação
     Object.assign(s, { status:'ATENDIDO', qtdAtendida: qtd, atendidoPor: usuario, atendidoUid: window._currentUser.uid, atendidoData: dataHora });
     const idx = window._embCat.findIndex(x=>x.id===embCatId);
-    if(idx>-1) window._embCat[idx] = { ...window._embCat[idx], saldoVazias: saldoVaziasApos, saldoCheias: saldoCheiasApos };
+    if(idx>-1) window._embCat[idx] = { ...window._embCat[idx], saldoPorPlanta: { ...(window._embCat[idx].saldoPorPlanta||{}), [pid]: { vazias: saldoVaziasApos, cheias: saldoCheiasApos } } };
  
     showToast('✓ Solicitação atendida!');
     registrarAuditLog({
@@ -1920,6 +2152,440 @@ window.confirmarRecusar = async () => {
   }
 };
  
+// ── SOLICITAÇÃO DE NF ────────────────────────────────────────────────────
+// Tela disponível para TODOS os perfis (mesmo visualizador) para EMITIR a solicitação — ela só
+// fica registrada como PENDENTE e gera o PDF para impressão/assinatura da transportadora. A baixa
+// real do saldo só ocorre quando um operador/administrador CONCLUI a pendência informando o
+// número da nota fiscal (mesma régua de permissão de Baixa/Solicitações, pois é o passo que
+// efetivamente altera o estoque). Notificações de nova solicitação/conclusão usam a mesma
+// preferência de aviso já existente para "solicitacoes", para não exigir um novo toggle.
+window._solicitacoesNF = [];
+window._nfSort = { field:'data', dir:-1 };
+let _nfUnsub = null, _nfUnsubPlanta = null;
+
+async function loadSolicitacoesNF(){
+  const pid = window._plantaAtual || 'matriz';
+  if(_nfUnsub && _nfUnsubPlanta===pid){ renderSolicitacoesNF(); return; }
+  if(_nfUnsub){ _nfUnsub(); _nfUnsub=null; }
+  _nfUnsubPlanta = pid;
+  const q = query(collection(db,'solicitacoes_nf'), where('plantaId','==',pid), orderBy('timestamp','desc'));
+  let primeiraCarga = true;
+  _nfUnsub = onSnapshot(q, (snap)=>{
+    window._solicitacoesNF = snap.docs.map(d=>({id:d.id,...d.data()}));
+    renderSolicitacoesNF();
+    if(!primeiraCarga){
+      snap.docChanges().forEach(change=>{
+        const nf = { id: change.doc.id, ...change.doc.data() };
+        const meuUid = window._currentUser?.uid;
+        if(change.type==='added' && nf.criadoUid!==meuUid){
+          showAppNotification('📄 Nova Solicitação de NF',
+            `${nf.clienteNome||'Cliente'} · ${nf.tipo==='TRANSFERENCIA'?'Transferência':'Devolução'} · ${(nf.itens||[]).length} item(ns)`,
+            'nf-'+nf.id, 'solicitacoes');
+        } else if(change.type==='modified' && nf.status==='CONCLUIDO' && nf.concluidoUid!==meuUid){
+          showAppNotification('✅ Solicitação de NF Concluída',
+            `${nf.clienteNome||''} · NF nº ${nf.numeroNF||'–'}`,
+            'nf-c-'+nf.id, 'solicitacoes');
+        }
+      });
+    }
+    primeiraCarga = false;
+  }, (e)=>{ console.error('loadSolicitacoesNF:', e); });
+}
+window.loadSolicitacoesNF = loadSolicitacoesNF;
+
+// ── formulário: cliente / tipo / itens ──
+window.onNfClienteChange = () => {
+  const cliId = document.getElementById('nf-cliente').value;
+  document.querySelectorAll('.nf-item-row').forEach(row => refreshNfItemEmbOptions(row, cliId));
+};
+
+window.onNfTipoChange = () => {
+  const tipo = document.getElementById('nf-tipo').value;
+  const wrap = document.getElementById('nf-planta-destino-wrap');
+  wrap.style.display = (tipo==='TRANSFERENCIA') ? 'block' : 'none';
+  if(tipo==='TRANSFERENCIA'){
+    const sel = document.getElementById('nf-planta-destino');
+    sel.innerHTML = window._plantas.filter(p=>p.id!==window._plantaAtual && p.ativa!==false)
+      .map(p=>`<option value="${p.id}">${esc(p.nome)}</option>`).join('');
+  }
+};
+
+function refreshNfItemEmbOptions(row, cliId){
+  const fieldDiv = row.querySelector('.nf-item-embfield');
+  const embs = cliId ? window._embCat.filter(e=>e.clienteId===cliId) : [];
+  fieldDiv.innerHTML = `<label>EMBALAGEM *</label>
+    <select class="nf-item-emb" ${embs.length?'':'disabled'} onchange="onNfItemChange(this)">
+      <option value="">${cliId?'— Selecione —':'— Selecione o cliente acima —'}</option>
+      ${embs.map(e=>`<option value="${e.id}">${esc(e.codigo)} – ${esc(e.descricao)}</option>`).join('')}
+    </select>`;
+  onNfItemChange(fieldDiv.querySelector('select'));
+}
+
+window.addNfItemRow = () => {
+  const list = document.getElementById('nf-itens-list'); if(!list) return;
+  const cliId = document.getElementById('nf-cliente').value;
+  const id = 'nfitem_'+Date.now()+Math.random().toString(36).slice(2,6);
+  const embs = cliId ? window._embCat.filter(e=>e.clienteId===cliId) : [];
+  const row = document.createElement('div'); row.className='emb-row nf-item-row'; row.id=id;
+  row.innerHTML = `
+    <div class="field nf-item-embfield">
+      <label>EMBALAGEM *</label>
+      <select class="nf-item-emb" ${embs.length?'':'disabled'} onchange="onNfItemChange(this)">
+        <option value="">${cliId?'— Selecione —':'— Selecione o cliente acima —'}</option>
+        ${embs.map(e=>`<option value="${e.id}">${esc(e.codigo)} – ${esc(e.descricao)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label>TIPO *</label>
+      <select class="nf-item-tipo" onchange="onNfItemChange(this)">
+        <option value="VAZIA">Vazia</option>
+        <option value="CHEIA">Cheia</option>
+      </select>
+    </div>
+    <div class="field"><label>SALDO DISPONÍVEL</label><input type="text" class="nf-item-saldo" readonly value="–"></div>
+    <div class="field"><label>QUANTIDADE *</label><input type="number" class="nf-item-qtd" min="1" placeholder="0" oninput="onNfItemChange(this)"></div>
+    <button class="btn-rem-emb" type="button" onclick="removeNfItem('${id}')">✕</button>`;
+  list.appendChild(row);
+};
+window.removeNfItem = (id) => { document.getElementById(id)?.remove(); };
+
+// Soma a quantidade já reservada em itens PENDENTES de outras solicitações de NF, para a mesma
+// embalagem + mesmo balde (CHEIA/VAZIA) — mesma lógica de reserva usada em Solicitações.
+function getTotalPendentesNF(embCatId, tipoEmbalagem, excluirId){
+  let total = 0;
+  for(const nf of (window._solicitacoesNF||[])){
+    if(nf.status!=='PENDENTE') continue;
+    if(excluirId && nf.id===excluirId) continue;
+    for(const it of (nf.itens||[])){
+      if(it.embCatId===embCatId && it.tipoEmbalagem===tipoEmbalagem) total += Number(it.qtd)||0;
+    }
+  }
+  return total;
+}
+window.getTotalPendentesNF = getTotalPendentesNF;
+
+// Atualiza o saldo disponível exibido na linha (descontando o que já está reservado em outras
+// solicitações de NF pendentes) e trava a quantidade máxima digitável.
+window.onNfItemChange = (el) => {
+  const row = el.closest('.nf-item-row'); if(!row) return;
+  const embId = row.querySelector('.nf-item-emb')?.value||'';
+  const tipo  = row.querySelector('.nf-item-tipo')?.value||'VAZIA';
+  const saldoEl = row.querySelector('.nf-item-saldo');
+  const qtdInput = row.querySelector('.nf-item-qtd');
+  if(!embId){ saldoEl.value='–'; qtdInput.removeAttribute('max'); return; }
+  const e = window._embCat.find(x=>x.id===embId);
+  if(!e){ saldoEl.value=0; return; }
+  const saldoAtual = (tipo==='CHEIA') ? getSaldoCheias(e) : getSaldoVazias(e);
+  const reservado = getTotalPendentesNF(embId, tipo);
+  const disponivel = Math.max(0, saldoAtual - reservado);
+  saldoEl.value = disponivel;
+  qtdInput.max = disponivel;
+};
+
+function getNfItens(){
+  return [...document.querySelectorAll('.nf-item-row')].map(row=>{
+    const embSel = row.querySelector('.nf-item-emb');
+    const embId = embSel?.value||'';
+    const e = window._embCat.find(x=>x.id===embId);
+    return {
+      embCatId: embId,
+      codigo: e?.codigo||'',
+      descricao: e?.descricao||'',
+      capa: e?.capa||'',
+      tipoEmbalagem: row.querySelector('.nf-item-tipo')?.value||'VAZIA',
+      qtd: Number(row.querySelector('.nf-item-qtd')?.value)||0
+    };
+  }).filter(it=>it.embCatId || it.qtd);
+}
+
+function resetFormNF(){
+  document.getElementById('nf-cliente').value = '';
+  document.getElementById('nf-tipo').value = '';
+  document.getElementById('nf-transportadora').value = '';
+  document.getElementById('nf-planta-destino-wrap').style.display = 'none';
+  document.getElementById('nf-itens-list').innerHTML = '';
+  addNfItemRow();
+}
+
+window.salvarSolicitacaoNF = async () => {
+  const errEl = document.getElementById('nf-form-error');
+  errEl.style.display = 'none';
+  const cliId = document.getElementById('nf-cliente').value;
+  const cli = window._clientes.find(c=>c.id===cliId);
+  const tipo = document.getElementById('nf-tipo').value;
+  const transportadora = document.getElementById('nf-transportadora').value.trim();
+  const plantaDestinoId = document.getElementById('nf-planta-destino').value;
+  const plantaDestino = window._plantas.find(p=>p.id===plantaDestinoId);
+  const itens = getNfItens();
+
+  if(!cliId){ showErr(errEl,'Selecione o cliente.'); return; }
+  if(!tipo){ showErr(errEl,'Selecione o tipo: Devolução ou Transferência.'); return; }
+  if(tipo==='TRANSFERENCIA' && !plantaDestinoId){ showErr(errEl,'Selecione a planta de destino da transferência.'); return; }
+  if(!transportadora){ showErr(errEl,'Informe o nome da transportadora.'); return; }
+  if(!itens.length){ showErr(errEl,'Adicione ao menos um item.'); return; }
+  for(const it of itens){
+    if(!it.embCatId){ showErr(errEl,'Selecione a embalagem em todos os itens.'); return; }
+    if(!it.qtd || it.qtd<=0){ showErr(errEl,'Informe uma quantidade válida em todos os itens.'); return; }
+    const e = window._embCat.find(x=>x.id===it.embCatId);
+    const saldoAtual = (it.tipoEmbalagem==='CHEIA') ? getSaldoCheias(e) : getSaldoVazias(e);
+    const reservado = getTotalPendentesNF(it.embCatId, it.tipoEmbalagem);
+    const disponivel = Math.max(0, saldoAtual - reservado);
+    if(it.qtd > disponivel){ showErr(errEl, `Quantidade de ${it.codigo} (${it.tipoEmbalagem==='CHEIA'?'Cheia':'Vazia'}) maior que o saldo disponível (${disponivel}).`); return; }
+  }
+  // duplicidade de embalagem+tipo dentro da mesma solicitação (evita duas linhas somando indevidamente na validação acima)
+  const chaves = itens.map(it=>it.embCatId+'|'+it.tipoEmbalagem);
+  if(new Set(chaves).size !== chaves.length){ showErr(errEl,'Há embalagens duplicadas (mesmo código e mesmo tipo) na lista de itens.'); return; }
+
+  const btn = document.getElementById('btn-nf-salvar');
+  btn.disabled = true; btn.textContent = 'Salvando...';
+  try{
+    const dataHora = formatDt(new Date());
+    const usuario = window._currentUser.displayName || window._currentUser.email;
+    const data = {
+      plantaId: window._plantaAtual || 'matriz',
+      clienteId: cliId, clienteNome: cli?.nome||'',
+      tipo,
+      plantaDestinoId: tipo==='TRANSFERENCIA' ? plantaDestinoId : null,
+      plantaDestinoNome: tipo==='TRANSFERENCIA' ? (plantaDestino?.nome||'') : null,
+      transportadora,
+      itens,
+      status: 'PENDENTE', numeroNF: null,
+      criadoPor: usuario, criadoUid: window._currentUser.uid, criadoData: dataHora,
+      concluidoPor: null, concluidoUid: null, concluidoData: null,
+      timestamp: serverTimestamp()
+    };
+    const ref = await addDoc(collection(db,'solicitacoes_nf'), data);
+    window._solicitacoesNF.unshift({ id: ref.id, ...data, timestamp: new Date() });
+    renderSolicitacoesNF();
+    gerarPdfSolicitacaoNF({ id: ref.id, ...data });
+    showToast('✓ Solicitação de NF registrada. Pendência criada.');
+    resetFormNF();
+  }catch(err){
+    showErr(errEl, 'Erro: '+(err.code||err.message));
+  }finally{
+    btn.disabled = false; btn.textContent = '✓ Concluir e Gerar PDF';
+  }
+};
+
+// ── PDF (impressão via navegador — Ctrl+P / "Salvar como PDF") ──
+function gerarPdfSolicitacaoNF(nf){
+  const destino = nf.tipo==='TRANSFERENCIA'
+    ? `<strong>Planta de destino:</strong> ${esc(nf.plantaDestinoNome||'–')}`
+    : `<strong>Cliente:</strong> ${esc(nf.clienteNome||'–')}`;
+  const linhas = (nf.itens||[]).map(it=>`
+    <tr>
+      <td style="width:70px;text-align:center;">${it.capa?`<img src="${it.capa}" style="max-width:60px;max-height:60px;object-fit:contain;">`:'–'}</td>
+      <td>${esc(it.codigo)}</td>
+      <td>${esc(it.descricao)}</td>
+      <td style="text-align:center;">${it.tipoEmbalagem==='CHEIA'?'Cheia':'Vazia'}</td>
+      <td style="text-align:center;">${it.qtd}</td>
+    </tr>`).join('');
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+    <title>Solicitação de NF</title>
+    <style>
+      body{font-family:Arial,Helvetica,sans-serif;color:#111;padding:32px;}
+      h1{font-size:18px;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid #111;padding-bottom:10px;margin-bottom:18px;}
+      .cabecalho p{margin:4px 0;font-size:13px;}
+      table{width:100%;border-collapse:collapse;margin-top:20px;}
+      th,td{border:1px solid #999;padding:8px;font-size:12px;}
+      th{background:#eee;text-align:left;}
+      .assinatura{margin-top:60px;display:flex;gap:40px;}
+      .assinatura div{flex:1;border-top:1px solid #111;padding-top:6px;text-align:center;font-size:12px;}
+      @media print{ body{padding:12px;} }
+    </style></head><body>
+    <h1>Solicitação de Nota Fiscal de Embalagem</h1>
+    <div class="cabecalho">
+      <p>${destino}</p>
+      <p><strong>Tipo de solicitação:</strong> ${nf.tipo==='TRANSFERENCIA'?'Transferência entre plantas':'Devolução'}</p>
+      <p><strong>Transportadora:</strong> ${esc(nf.transportadora||'–')}</p>
+      <p><strong>Data/Hora:</strong> ${esc(nf.criadoData||formatDt(new Date()))}</p>
+      <p><strong>Solicitado por:</strong> ${esc(nf.criadoPor||'–')}</p>
+    </div>
+    <table>
+      <thead><tr><th>Imagem</th><th>Código</th><th>Descrição</th><th>Cheia/Vazia</th><th>Qtd.</th></tr></thead>
+      <tbody>${linhas}</tbody>
+    </table>
+    <div class="assinatura">
+      <div>Responsável pela expedição</div>
+      <div>Transportadora</div>
+    </div>
+  </body></html>`;
+  const w = window.open('', '_blank');
+  if(!w){ showToast('Permita pop-ups para gerar o PDF de impressão.', true); return; }
+  w.document.write(html);
+  w.document.close();
+  w.onload = () => w.print();
+}
+window.imprimirSolicitacaoNF = (id) => {
+  const nf = window._solicitacoesNF.find(x=>x.id===id);
+  if(nf) gerarPdfSolicitacaoNF(nf);
+};
+
+// ── listagem / filtros ──
+window.renderSolicitacoesNF = () => {
+  const grid = document.getElementById('nf-grid');
+  if(!grid) return;
+  const fc = document.getElementById('filter-nf-cli')?.value||'';
+  const fs = document.getElementById('filter-nf-status')?.value||'';
+  let data = (window._solicitacoesNF||[]).filter(nf=>{
+    if(fc && nf.clienteId!==fc) return false;
+    if(fs && nf.status!==fs) return false;
+    return true;
+  });
+  const empty = document.getElementById('nf-empty');
+  if(!data.length){ grid.innerHTML=''; empty.style.display='block'; return; }
+  empty.style.display='none';
+  const canWrite = ['operador','administrador'].includes(window._userRole);
+  const getVal = (nf)=>{
+    switch(window._nfSort.field){
+      case 'data': return parseDataHoraToSortable(nf.criadoData);
+      case 'cliente': return (nf.clienteNome||'').toLowerCase();
+      case 'status': return nf.status||'';
+      default: return '';
+    }
+  };
+  data = genericSort(data, window._nfSort, getVal);
+  grid.innerHTML = data.map(nf=>{
+    const isConcluido = nf.status==='CONCLUIDO';
+    const totalItens = (nf.itens||[]).reduce((s,it)=>s+(Number(it.qtd)||0),0);
+    const destino = nf.tipo==='TRANSFERENCIA' ? `→ ${esc(nf.plantaDestinoNome||'–')}` : esc(nf.clienteNome||'–');
+    return `<tr>
+      <td data-label="Data/Hora" style="font-family:var(--font-mono);font-size:12px">${esc(nf.criadoData||'–')}</td>
+      <td data-label="Cliente" style="color:var(--accent)">${esc(nf.clienteNome||'–')}</td>
+      <td data-label="Tipo">${nf.tipo==='TRANSFERENCIA'?'Transferência':'Devolução'}<div style="font-size:11px;color:var(--text2)">${destino}</div></td>
+      <td data-label="Transportadora">${esc(nf.transportadora||'–')}</td>
+      <td data-label="Itens" style="font-family:var(--font-mono)">${(nf.itens||[]).length} (${totalItens} un.)</td>
+      <td data-label="Nº NF" style="font-family:var(--font-mono)">${esc(nf.numeroNF||'–')}</td>
+      <td data-label="Status"><span class="badge-status ${isConcluido?'atendido':'pendente'}">${isConcluido?'Concluído':'Pendente'}</span></td>
+      <td data-label="Ações">
+        <button class="btn btn-secondary btn-sm btn-icon" style="margin:0 4px 4px 0" onclick="imprimirSolicitacaoNF('${nf.id}')" title="Imprimir PDF">🖨</button>
+        ${canWrite && !isConcluido ? `<button class="btn btn-primary btn-xs" style="margin:0 4px 4px 0" onclick="openModalConcluirNF('${nf.id}')">Concluir</button>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
+};
+window.sortNF = (field) => {
+  const s = window._nfSort;
+  if(s.field===field) s.dir*=-1; else { s.field=field; s.dir=1; }
+  renderSolicitacoesNF();
+};
+
+// ── conclusão (baixa real de saldo + nº da NF) ──
+window.openModalConcluirNF = (id) => {
+  const nf = window._solicitacoesNF.find(x=>x.id===id); if(!nf) return;
+  document.getElementById('modal-concluir-nf-error').style.display='none';
+  document.getElementById('concluir-nf-id').value = id;
+  document.getElementById('concluir-nf-numero').value = '';
+  document.getElementById('concluir-nf-cliente').textContent = nf.clienteNome||'–';
+  document.getElementById('concluir-nf-tipo').textContent = nf.tipo==='TRANSFERENCIA' ? `Transferência → ${nf.plantaDestinoNome||'–'}` : 'Devolução';
+  document.getElementById('concluir-nf-transportadora').value = nf.transportadora||'';
+  const itensWrap = document.getElementById('concluir-nf-itens');
+  itensWrap.innerHTML = (nf.itens||[]).map((it,i)=>{
+    const e = window._embCat.find(x=>x.id===it.embCatId);
+    const saldoAtual = e ? (it.tipoEmbalagem==='CHEIA' ? getSaldoCheias(e) : getSaldoVazias(e)) : 0;
+    return `<div class="emb-row" data-idx="${i}">
+      <div class="field" style="flex:2 1 220px;"><label>EMBALAGEM</label><input type="text" readonly value="${esc(it.codigo)} – ${esc(it.descricao)}"></div>
+      <div class="field"><label>TIPO</label>
+        <select class="concluir-nf-item-tipo">
+          <option value="VAZIA" ${it.tipoEmbalagem==='VAZIA'?'selected':''}>Vazia</option>
+          <option value="CHEIA" ${it.tipoEmbalagem==='CHEIA'?'selected':''}>Cheia</option>
+        </select>
+      </div>
+      <div class="field"><label>SALDO ATUAL</label><input type="text" readonly value="${saldoAtual}"></div>
+      <div class="field"><label>QUANTIDADE *</label><input type="number" class="concluir-nf-item-qtd" min="1" value="${it.qtd}"></div>
+    </div>`;
+  }).join('');
+  document.getElementById('modal-concluir-nf').classList.add('open');
+};
+
+window.confirmarConcluirNF = async () => {
+  if(!['operador','administrador'].includes(window._userRole)){ showToast('Sem permissão.', true); return; }
+  const errEl = document.getElementById('modal-concluir-nf-error');
+  errEl.style.display = 'none';
+  const id = document.getElementById('concluir-nf-id').value;
+  const numeroNF = document.getElementById('concluir-nf-numero').value.trim();
+  const transportadora = document.getElementById('concluir-nf-transportadora').value.trim();
+  const nf = window._solicitacoesNF.find(x=>x.id===id);
+  if(!nf){ showErr(errEl,'Solicitação não encontrada.'); return; }
+  if(nf.status==='CONCLUIDO'){ showErr(errEl,'Esta solicitação já foi concluída.'); return; }
+  if(!numeroNF){ showErr(errEl,'Informe o número da nota fiscal.'); return; }
+  if(!transportadora){ showErr(errEl,'Informe o nome da transportadora.'); return; }
+
+  const linhas = [...document.querySelectorAll('#concluir-nf-itens .emb-row')].map((row,i)=>({
+    embCatId: nf.itens[i].embCatId,
+    codigo: nf.itens[i].codigo,
+    descricao: nf.itens[i].descricao,
+    capa: nf.itens[i].capa,
+    tipoEmbalagem: row.querySelector('.concluir-nf-item-tipo').value,
+    qtd: Number(row.querySelector('.concluir-nf-item-qtd').value)||0
+  }));
+  for(const it of linhas){ if(!it.qtd || it.qtd<=0){ showErr(errEl,'Todas as quantidades devem ser maiores que zero.'); return; } }
+
+  const btn = document.getElementById('btn-confirmar-concluir-nf');
+  btn.disabled = true; btn.textContent = 'Confirmando...';
+  const pid = nf.plantaId || 'matriz';
+  const dataHora = formatDt(new Date());
+  const usuario = window._currentUser.displayName || window._currentUser.email;
+  const nfRef = doc(db,'solicitacoes_nf', id);
+  const refs = linhas.map(it => ({...it, embRef: doc(db,'embalagensCat', it.embCatId)}));
+
+  try{
+    await runTransaction(db, async (transaction) => {
+      // 1ª fase: leituras
+      const snaps = [];
+      for(const r of refs){
+        const snap = await transaction.get(r.embRef);
+        if(!snap.exists()) throw new Error(`Embalagem não encontrada (${r.codigo}).`);
+        snaps.push(snap);
+      }
+      const nfSnap = await transaction.get(nfRef);
+      if(!nfSnap.exists()) throw new Error('Solicitação não encontrada.');
+      if(nfSnap.data().status==='CONCLUIDO') throw new Error('Esta solicitação já foi concluída.');
+
+      // 2ª fase: validação + escrita (tudo ou nada)
+      refs.forEach((r,i)=>{
+        const eLocal = window._embCat.find(x=>x.id===r.embCatId);
+        const mergedEmb = {...eLocal, ...snaps[i].data()};
+        const bucket = r.tipoEmbalagem==='CHEIA' ? 'cheias' : 'vazias';
+        const saldoAtual = r.tipoEmbalagem==='CHEIA' ? getSaldoCheias(mergedEmb, pid) : getSaldoVazias(mergedEmb, pid);
+        const saldoApos = saldoAtual - r.qtd;
+        if(saldoApos < 0) throw new Error(`Quantidade de ${r.codigo} (${r.tipoEmbalagem==='CHEIA'?'Cheia':'Vazia'}) maior que o saldo disponível (${saldoAtual}).`);
+        const outroBucketAtual = r.tipoEmbalagem==='CHEIA' ? getSaldoVazias(mergedEmb, pid) : getSaldoCheias(mergedEmb, pid);
+        const novoSaldo = bucket==='cheias' ? { vazias: outroBucketAtual, cheias: saldoApos } : { vazias: saldoApos, cheias: outroBucketAtual };
+        transaction.update(r.embRef, { [`saldoPorPlanta.${pid}`]: novoSaldo });
+      });
+      transaction.update(nfRef, {
+        itens: linhas, transportadora, numeroNF,
+        status: 'CONCLUIDO',
+        concluidoPor: usuario, concluidoUid: window._currentUser.uid, concluidoData: dataHora
+      });
+    });
+
+    // reflete localmente
+    refs.forEach(r=>{
+      const idx = window._embCat.findIndex(x=>x.id===r.embCatId);
+      if(idx<0) return;
+      const eAtual = window._embCat[idx];
+      const bucket = r.tipoEmbalagem==='CHEIA' ? 'cheias' : 'vazias';
+      const atual = { vazias: getSaldoVazias(eAtual, pid), cheias: getSaldoCheias(eAtual, pid) };
+      atual[bucket] = atual[bucket] - r.qtd;
+      window._embCat[idx] = { ...eAtual, saldoPorPlanta: { ...(eAtual.saldoPorPlanta||{}), [pid]: atual } };
+    });
+    Object.assign(nf, { itens: linhas, transportadora, numeroNF, status:'CONCLUIDO', concluidoPor:usuario, concluidoUid:window._currentUser.uid, concluidoData:dataHora });
+    registrarAuditLog({
+      tipoEvento:'SAIDA_NF', codigoItem: linhas.map(l=>l.codigo).join(', '), cliente: nf.clienteNome,
+      detalhes:{ tipo:'solicitacao_nf', numeroNF, transportadora, itens: linhas }
+    });
+    showToast('✓ Solicitação de NF concluída. Saldo baixado.');
+    closeModal('modal-concluir-nf');
+    renderSolicitacoesNF();
+    renderEmbCat();
+  }catch(err){
+    showErr(errEl, 'Erro: '+(err.code||err.message));
+  }finally{
+    btn.disabled = false; btn.textContent = '✓ Confirmar Conclusão';
+  }
+};
+
 window.openModalEmbCat = (id) => {
   document.getElementById('modal-emb-cat-error').style.display='none';
   populateClienteSelects();
@@ -2371,6 +3037,7 @@ window.confirmarInventario = async () => {
   const dataHora = formatDt(new Date());
   const usuario  = window._currentUser.displayName || window._currentUser.email;
   const uid      = window._currentUser.uid;
+  const pid      = window._plantaAtual || 'matriz';
  
   // 1 doc de embalagem (destino do novo saldo) + 1 doc de ajuste (histórico) por linha alterada
   const refs = linhasAlteradas.map(r=>({
@@ -2398,18 +3065,20 @@ window.confirmarInventario = async () => {
       refs.forEach((r, i) => {
         const embData = snaps[i].data();
         const eLocal  = window._embCat.find(x=>x.id===r.embCatId);
-        // saldo real no servidor no momento da transação (persistido ou calculado do histórico — migração)
-        const cheiasServidor = (embData.saldoCheias!=null) ? Number(embData.saldoCheias) : computeSaldoCheiasFromHistorico({...eLocal, ...embData});
-        const vaziasServidor = (embData.saldoVazias!=null) ? Number(embData.saldoVazias) : computeSaldoVaziasFromHistorico({...eLocal, ...embData});
+        // saldo real no servidor no momento da transação, isolado por planta (persistido ou calculado do histórico — migração)
+        const mergedEmb = {...eLocal, ...embData};
+        const cheiasServidor = getSaldoCheias(mergedEmb, pid);
+        const vaziasServidor = getSaldoVazias(mergedEmb, pid);
  
         if(r.cheiasNovo < 0 || r.vaziasNovo < 0){
           throw new Error(`Saldo apurado não pode ser negativo (${eLocal?.codigo||r.embCatId}).`);
         }
  
-        transaction.update(r.embRef, { saldoCheias: r.cheiasNovo, saldoVazias: r.vaziasNovo });
+        transaction.update(r.embRef, { [`saldoPorPlanta.${pid}`]: { cheias: r.cheiasNovo, vazias: r.vaziasNovo } });
         transaction.set(r.ajusteRef, {
           dataHora, timestamp: serverTimestamp(),
           usuario, uid,
+          plantaId: pid,
           clienteId: cliId, clienteNome: cli?.nome||'',
           codigo: eLocal?.codigo||'', embCatId: r.embCatId,
           cheiasAntes: cheiasServidor, cheiasDepois: r.cheiasNovo,
@@ -2427,10 +3096,10 @@ window.confirmarInventario = async () => {
     // reflete localmente os resultados já confirmados pela transação
     resultados.forEach(res=>{
       const idx = window._embCat.findIndex(x=>x.id===res.embCatId);
-      if(idx>-1) window._embCat[idx] = { ...window._embCat[idx], saldoVazias: res.saldoVazias, saldoCheias: res.saldoCheias };
+      if(idx>-1) window._embCat[idx] = { ...window._embCat[idx], saldoPorPlanta: { ...(window._embCat[idx].saldoPorPlanta||{}), [pid]: { vazias: res.saldoVazias, cheias: res.saldoCheias } } };
       window._ajustesInventario.unshift({
         id: res.ajusteId, dataHora, timestamp: new Date(),
-        usuario, uid, clienteId: cliId, clienteNome: cli?.nome||'',
+        usuario, uid, plantaId: pid, clienteId: cliId, clienteNome: cli?.nome||'',
         codigo: res.codigo, embCatId: res.embCatId,
         cheiasAntes: res.cheiasAntes, cheiasDepois: res.saldoCheias,
         vaziasAntes: res.vaziasAntes, vaziasDepois: res.saldoVazias
@@ -2474,6 +3143,7 @@ window.salvarRegistro = async () => {
       dataHora:formatDt(new Date()), timestamp:serverTimestamp(),
       usuario:window._currentUser.displayName||window._currentUser.email,
       uid:window._currentUser.uid,
+      plantaId: window._plantaAtual || 'matriz',
       placa, transportadora, nota,
       clientesNomes,
       embalagens:embs, obs, fotos:window._fotos
@@ -2494,10 +3164,14 @@ window.salvarRegistro = async () => {
 };
  
 // ── LOAD REGISTROS ─────────────────────────────────────
+let _regUnsubPlanta = null;
 async function loadRegistros(){
-  // já existe um listener em tempo real ativo — apenas garante que a tela reflita os dados atuais
-  if(_regUnsub){ renderTabela(); if(document.getElementById('embcat-grid')) renderEmbCat(); return; }
-  const q = query(collection(db,'registros'),orderBy('timestamp','desc'));
+  const pid = window._plantaAtual || 'matriz';
+  // já existe um listener em tempo real ativo para esta mesma planta — apenas garante que a tela reflita os dados atuais
+  if(_regUnsub && _regUnsubPlanta===pid){ renderTabela(); if(document.getElementById('embcat-grid')) renderEmbCat(); return; }
+  if(_regUnsub){ _regUnsub(); _regUnsub=null; } // planta mudou: encerra o listener anterior antes de abrir um novo
+  _regUnsubPlanta = pid;
+  const q = query(collection(db,'registros'), where('plantaId','==',pid), orderBy('timestamp','desc'));
   let primeiraCarga = true;
   _regUnsub = onSnapshot(q, (snap)=>{
     window._registros = snap.docs.map(d=>({id:d.id,...d.data()}));
@@ -2794,6 +3468,8 @@ async function loadUsers(){
     if(snap.empty){list.innerHTML=`<div class="empty-state"><div class="empty-icon">👥</div><p>Nenhum usuário ainda.</p></div>`;return;}
     list.innerHTML=snap.docs.map(d=>{
       const u=d.data();const ativo=u.ativo!==false;const perfil=u.perfil||'operador';const admMaster=u.admMaster===true;
+      const plantaPadrao = u.plantaPadrao||'matriz';
+      const plantaOpts = window._plantas.map(p=>`<option value="${p.id}" ${p.id===plantaPadrao?'selected':''}>${esc(p.nome)}</option>`).join('');
       return`<div class="user-row">
         <div class="user-info">
           <div class="uname">${esc(u.nome||'–')}</div>
@@ -2805,7 +3481,10 @@ async function loadUsers(){
             <option value="operador"     ${perfil==='operador'?'selected':''}>Operador</option>
             <option value="administrador"${perfil==='administrador'?'selected':''}>Administrador</option>
           </select>
-          <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);cursor:pointer;" title="ADM-MASTER: acesso administrativo total, sem exigir a senha de administrador">
+          <select onchange="changePlantaPadrao('${d.id}',this.value)" title="Planta padrão do usuário" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:5px 10px;font-family:var(--font-body);font-size:12px;outline:none;cursor:pointer;">
+            ${plantaOpts}
+          </select>
+          <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);cursor:pointer;" title="ADM-MASTER: acesso administrativo total a todas as plantas, sem exigir a senha de administrador">
             <span class="switch">
               <input type="checkbox" ${admMaster?'checked':''} onchange="toggleAdmMaster('${d.id}',this.checked,this)">
               <span class="slider"></span>
@@ -2837,6 +3516,23 @@ window.changeRole=async(docId,perfil)=>{
     loadUsers();
   }
   catch(e){showToast('Erro: '+e.message,true);}
+};
+window.changePlantaPadrao=async(docId,plantaId)=>{
+  if(window._userRole!=='administrador' && !isAdmMaster()){ showToast('Sem permissão.', true); return; }
+  try{
+    await updateDoc(doc(db,'usuarios',docId), { plantaPadrao: plantaId });
+    showToast('✓ Planta padrão atualizada.');
+    if(window._currentUser?.uid === docId && !isAdmMaster()){
+      // usuário comum: a planta padrão É a planta atual — recarrega tudo no novo contexto
+      window._plantaPadrao = plantaId;
+      window._plantaAtual = plantaId;
+      renderPlantaSelectorTopbar();
+      await Promise.all([loadEmbCat(), loadRegistros(), loadBaixas(), loadSolicitacoes(), loadAjustesInventario(), loadSolicitacoesNF()]);
+    } else if(window._currentUser?.uid === docId){
+      window._plantaPadrao = plantaId; // admMaster: só atualiza a referência de "padrão" para fins do destaque visual
+      renderPlantaSelectorTopbar();
+    }
+  }catch(e){ showToast('Erro: '+e.message, true); }
 };
 window.toggleAdmMaster=async(docId,checked,checkboxEl)=>{
   if (window._userRole!=='administrador' && !isAdmMaster()) { showToast('Sem permissão.', true); if(checkboxEl) checkboxEl.checked=!checked; return; }
@@ -2986,6 +3682,7 @@ window.exportarRelatorioExcel = async () => {
  
 // ── NAV ────────────────────────────────────────────────
 window.switchTab=(tab)=>{
+  window._tabAtual = tab;
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-tab, .admin-topbar-btn').forEach(t=>t.classList.remove('active'));
   document.getElementById(`tab-${tab}`).classList.add('active');
@@ -2994,6 +3691,7 @@ window.switchTab=(tab)=>{
   if(tab==='clientes')renderClientes();
   if(tab==='baixa')renderBaixaSaldo();
   if(tab==='solicitacoes')renderSolicitacoes();
+  if(tab==='nf'){ if(!document.getElementById('nf-itens-list').children.length) addNfItemRow(); renderSolicitacoesNF(); }
   if(tab==='inventario'){ if(window._userRole==='administrador') onInvClienteChange(); }
   // ADM-MASTER: pula o gate de senha do painel Admin e já entra liberado
   if(tab==='admin' && isAdmMaster()){
@@ -3015,7 +3713,7 @@ window.showToast=(msg,error=false)=>{const t=document.getElementById('toast');t.
 function showErr(el,msg){el.style.display='block';el.textContent=msg;}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
  
-['modal-detail','modal-delete','modal-cliente','modal-delete-cli','modal-emb-cat','modal-delete-emb','modal-import-emb','modal-import-inv','modal-baixa','modal-atender','modal-recusar','modal-sol-detail','modal-historico','modal-cliente-embalagens','modal-exportar-auditoria','modal-notificacoes'].forEach(id=>document.getElementById(id)?.addEventListener('click',function(e){if(e.target===this)closeModal(id);}));
+['modal-detail','modal-delete','modal-cliente','modal-delete-cli','modal-emb-cat','modal-delete-emb','modal-import-emb','modal-import-inv','modal-baixa','modal-atender','modal-recusar','modal-sol-detail','modal-historico','modal-cliente-embalagens','modal-exportar-auditoria','modal-notificacoes','modal-planta','modal-concluir-nf'].forEach(id=>document.getElementById(id)?.addEventListener('click',function(e){if(e.target===this)closeModal(id);}));
 document.getElementById('img-viewer')?.addEventListener('click',function(e){if(e.target===this)closeImgViewer();});
 
 // ── PWA: registro do Service Worker ─────────────────────

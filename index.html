@@ -26,6 +26,13 @@
     });
   }
 </script>
+<style>
+  .planta-indicator-wrap{display:flex;align-items:center;}
+  .planta-indicator-wrap #planta-badge{display:inline-flex;align-items:center;gap:4px;background:var(--bg);border:1px solid var(--border);}
+  .planta-indicator-wrap.planta-diferente #planta-badge,
+  .planta-indicator-wrap.planta-diferente #topbar-planta-select{border-color:var(--warn);color:var(--warn);}
+  .planta-indicator-wrap.planta-diferente::after{content:'⚠ outra planta';font-size:10px;color:var(--warn);margin-left:6px;white-space:nowrap;}
+</style>
 </head>
 <body>
  
@@ -85,6 +92,10 @@
   <div class="topbar">
     <div class="topbar-brand">Magius · Embalagens</div>
     <div class="topbar-right">
+      <div id="planta-indicator-wrap" class="planta-indicator-wrap" style="display:none;">
+        <select id="topbar-planta-select" class="btn btn-secondary btn-sm planta-select-auto" style="display:none" onchange="onPlantaSelectChange(this.value)"></select>
+        <span id="planta-badge" class="role-tag" style="display:none;"></span>
+      </div>
       <div class="user-badge">Olá, <span id="topbar-name">–</span> <span id="topbar-role" class="role-tag"></span></div>
       <button class="btn btn-secondary btn-sm btn-icon admin-topbar-btn" id="btn-notif" onclick="openModalNotificacoes()" title="Notificações">🔔</button>
       <button class="btn btn-secondary btn-sm btn-icon admin-topbar-btn" id="nav-admin" onclick="switchTab('admin')" title="Administração">⚙</button>
@@ -98,6 +109,7 @@
     <button class="nav-tab" id="nav-embalagens-cat" onclick="switchTab('embalagens-cat')">📦 Embalagens</button>
     <button class="nav-tab" id="nav-baixa" onclick="switchTab('baixa')" style="display:none">📉 Baixa de Saldo</button>
     <button class="nav-tab" id="nav-solicitacoes" onclick="switchTab('solicitacoes')" style="display:none">📋 Solicitações</button>
+    <button class="nav-tab" id="nav-nf" onclick="switchTab('nf')" style="display:none">📄 Solicitação de NF</button>
     <button class="nav-tab" id="nav-inventario" onclick="switchTab('inventario')">🧮 Inventário</button>
   </div>
  
@@ -387,7 +399,80 @@
       <div id="sol-empty" class="empty-state" style="display:none;"><div class="empty-icon">📋</div><p>Nenhuma solicitação registrada</p></div>
     </div>
   </div>
- 
+
+  <!-- SOLICITAÇÃO DE NF -->
+  <div id="tab-nf" class="page">
+    <div class="page-header">
+      <div><div class="page-title">Solicitação de NF</div><div class="page-sub">Devolução ou transferência de embalagens, com emissão de PDF para impressão</div></div>
+    </div>
+
+    <div class="form-card" id="nf-form-wrap">
+      <div class="form-card-title">📄 Nova Solicitação de NF</div>
+      <div id="nf-form-error" class="error-msg"></div>
+      <div class="form-grid">
+        <div class="field"><label>CLIENTE *</label>
+          <select id="nf-cliente" onchange="onNfClienteChange()">
+            <option value="">— Selecione o cliente —</option>
+          </select>
+        </div>
+        <div class="field"><label>TIPO DE SOLICITAÇÃO *</label>
+          <select id="nf-tipo" onchange="onNfTipoChange()">
+            <option value="">— Selecione —</option>
+            <option value="DEVOLUCAO">Devolução</option>
+            <option value="TRANSFERENCIA">Transferência entre plantas</option>
+          </select>
+        </div>
+        <div class="field" id="nf-planta-destino-wrap" style="display:none;"><label>PLANTA DE DESTINO *</label>
+          <select id="nf-planta-destino"></select>
+        </div>
+        <div class="field"><label>TRANSPORTADORA *</label><input type="text" id="nf-transportadora" placeholder="Nome da transportadora"></div>
+      </div>
+
+      <div style="margin-top:18px;">
+        <div class="form-card-title" style="font-size:13px;margin-bottom:10px;">Itens</div>
+        <div id="nf-itens-list"></div>
+        <button class="btn btn-secondary btn-sm" style="margin-top:6px;" onclick="addNfItemRow()">+ Adicionar Item</button>
+      </div>
+
+      <div style="margin-top:18px;">
+        <button class="btn btn-primary" id="btn-nf-salvar" onclick="salvarSolicitacaoNF()">✓ Concluir e Gerar PDF</button>
+      </div>
+    </div>
+
+    <div class="filter-bar">
+      <div class="field"><label>FILTRAR POR CLIENTE</label>
+        <select id="filter-nf-cli" onchange="renderSolicitacoesNF()">
+          <option value="">Todos os clientes</option>
+        </select>
+      </div>
+      <div class="field"><label>FILTRAR POR STATUS</label>
+        <select id="filter-nf-status" onchange="renderSolicitacoesNF()">
+          <option value="">Todos</option>
+          <option value="PENDENTE" selected>Pendente</option>
+          <option value="CONCLUIDO">Concluído</option>
+        </select>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <div style="overflow-x:auto;">
+        <table class="table-solicitacoes">
+          <thead><tr>
+            <th class="sortable" onclick="sortNF('data')">Data/Hora<span class="sort-ind" id="sort-ind-nf-data"></span></th>
+            <th class="sortable" onclick="sortNF('cliente')">Cliente<span class="sort-ind" id="sort-ind-nf-cliente"></span></th>
+            <th>Tipo</th>
+            <th>Transportadora</th>
+            <th>Itens</th>
+            <th>Nº NF</th>
+            <th class="sortable" onclick="sortNF('status')">Status<span class="sort-ind" id="sort-ind-nf-status"></span></th>
+            <th>Ações</th>
+          </tr></thead>
+          <tbody id="nf-grid"></tbody>
+        </table>
+      </div>
+      <div id="nf-empty" class="empty-state" style="display:none;"><div class="empty-icon">📄</div><p>Nenhuma solicitação de NF registrada</p></div>
+    </div>
+  </div>
+
   <!-- INVENTÁRIO -->
   <div id="tab-inventario" class="page">
     <div class="page-header">
@@ -468,6 +553,15 @@
         </div>
       </div>
 
+<!-- CADASTRO DE PLANTAS -->
+<div class="form-card" id="plantas-card" style="display:none;">
+  <div class="page-header" style="margin-bottom:14px;">
+    <div class="form-card-title" style="margin:0;">🏭 Plantas (Matriz / Filiais)</div>
+    <button class="btn btn-secondary btn-sm" onclick="openModalPlanta()">+ Nova Planta</button>
+  </div>
+  <div id="plantas-list" class="users-list"></div>
+</div>
+
 <!-- CONFIGURAÇÃO DE APARÊNCIA -->
 <div class="form-card" id="config-tema-card" style="display:none;">
   <div class="form-card-title">🎨 Aparência do sistema</div>
@@ -547,6 +641,24 @@
   </div>
 </div>
  
+<!-- MODAL PLANTA -->
+<div id="modal-planta" class="modal-overlay">
+  <div class="modal" style="max-width:420px;">
+    <button class="modal-close" onclick="closeModal('modal-planta')">✕</button>
+    <div class="modal-title" id="modal-planta-title">Nova Planta</div>
+    <div id="modal-planta-error" class="error-msg"></div>
+    <div class="form-grid">
+      <div class="field full"><label>NOME DA PLANTA *</label><input type="text" id="planta-nome" placeholder="Ex: Filial Sul"></div>
+      <div class="field full"><label>CÓDIGO *</label><input type="text" id="planta-codigo" placeholder="Ex: FSU" oninput="this.value=this.value.toUpperCase()"></div>
+    </div>
+    <input type="hidden" id="planta-edit-id">
+    <div style="display:flex;gap:10px;margin-top:8px;">
+      <button class="btn btn-primary" style="flex:1" onclick="salvarPlanta()">Salvar Planta</button>
+      <button class="btn btn-secondary" onclick="closeModal('modal-planta')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL CLIENTE -->
 <div id="modal-cliente" class="modal-overlay">
   <div class="modal" style="max-width:480px;">
@@ -807,6 +919,30 @@
 </div>
  
 <!-- MODAL DETALHES SOLICITAÇÃO -->
+<!-- MODAL CONCLUIR SOLICITAÇÃO DE NF -->
+<div id="modal-concluir-nf" class="modal-overlay">
+  <div class="modal" style="max-width:640px;">
+    <button class="modal-close" onclick="closeModal('modal-concluir-nf')">✕</button>
+    <div class="modal-title">✅ Concluir Solicitação de NF</div>
+    <div id="modal-concluir-nf-error" class="error-msg"></div>
+    <div class="detail-grid" style="margin-bottom:16px;">
+      <div class="detail-item"><label>CLIENTE</label><span id="concluir-nf-cliente">–</span></div>
+      <div class="detail-item"><label>TIPO</label><span id="concluir-nf-tipo">–</span></div>
+    </div>
+    <div class="field"><label>TRANSPORTADORA *</label><input type="text" id="concluir-nf-transportadora" placeholder="Nome da transportadora"></div>
+    <div class="field"><label>NÚMERO DA NOTA FISCAL *</label><input type="text" id="concluir-nf-numero" placeholder="Ex: 123456"></div>
+    <div style="margin-top:14px;">
+      <div class="form-card-title" style="font-size:13px;margin-bottom:10px;">Itens (você pode corrigir tipo/quantidade antes de confirmar)</div>
+      <div id="concluir-nf-itens"></div>
+    </div>
+    <input type="hidden" id="concluir-nf-id">
+    <div style="display:flex;gap:10px;margin-top:16px;">
+      <button class="btn btn-primary" style="flex:1" id="btn-confirmar-concluir-nf" onclick="confirmarConcluirNF()">✓ Confirmar Conclusão</button>
+      <button class="btn btn-secondary" onclick="closeModal('modal-concluir-nf')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
 <div id="modal-sol-detail" class="modal-overlay">
   <div class="modal" style="max-width:480px;">
     <button class="modal-close" onclick="closeModal('modal-sol-detail')">✕</button>
