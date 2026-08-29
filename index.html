@@ -854,13 +854,13 @@
     <div class="detail-grid" style="margin-bottom:16px;">
       <div class="detail-item"><label>CLIENTE</label><span id="baixa-info-cliente">–</span></div>
       <div class="detail-item"><label>EMBALAGEM</label><span id="baixa-info-embalagem">–</span></div>
-      <div class="detail-item"><label>SALDO VAZIO DISPONÍVEL</label><span id="baixa-info-saldo-vazio" style="font-family:var(--font-mono);font-weight:700;color:#60a5fa">0</span></div>
+      <div class="detail-item"><label>SALDO VAZIO DISPONÍVEL</label><span id="baixa-info-saldo-vazio" style="font-family:var(--font-mono);font-weight:700;color:var(--info)">0</span></div>
       <div class="detail-item"><label>SALDO CHEIO DISPONÍVEL</label><span id="baixa-info-saldo-cheio" style="font-family:var(--font-mono);font-weight:700;color:var(--accent)">0</span></div>
       <div class="detail-item" style="grid-column:1/-1"><label>DATA / HORA <span style="color:var(--accent);font-size:10px">AUTO</span></label><span id="baixa-info-data">–</span></div>
     </div>
     <div class="field"><label>USUÁRIO <span style="color:var(--accent);font-size:10px">AUTO</span></label><input type="text" id="baixa-usuario" readonly></div>
     <div class="form-grid" style="grid-template-columns:1fr 1fr;margin-bottom:16px;">
-      <div class="field" style="margin:0;"><label>QTD. A BAIXAR · <span style="color:#60a5fa">VAZIAS</span></label><input type="number" id="baixa-qtd-vazias" min="0" value="0" oninput="validateBaixaForm()"></div>
+      <div class="field" style="margin:0;"><label>QTD. A BAIXAR · <span style="color:var(--info)">VAZIAS</span></label><input type="number" id="baixa-qtd-vazias" min="0" value="0" oninput="validateBaixaForm()"></div>
       <div class="field" style="margin:0;"><label>QTD. A BAIXAR · <span style="color:var(--accent)">CHEIAS</span></label><input type="number" id="baixa-qtd-cheias" min="0" value="0" oninput="validateBaixaForm()"></div>
     </div>
     <div class="field"><label>MOTIVO / OBSERVAÇÃO</label><textarea id="baixa-obs" rows="2" placeholder="Opcional…"></textarea></div>

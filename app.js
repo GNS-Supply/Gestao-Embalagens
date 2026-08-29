@@ -1126,7 +1126,7 @@ function renderClienteEmbalagensModal(){
     const cheias = estoqueAtivo ? getSaldoCheias(e) : 0;
     const total  = estoqueAtivo ? getSaldoTotal(e)  : 0;
     const estoqueCols = estoqueAtivo ? `
-      <td class="col-vazias" style="font-family:var(--font-mono);font-weight:700;color:${vazias>0?'#60a5fa':'var(--text2)'}">${vazias}</td>
+      <td class="col-vazias" style="font-family:var(--font-mono);font-weight:700;color:${vazias>0?'var(--info)':'var(--text2)'}">${vazias}</td>
       <td class="col-cheias" style="font-family:var(--font-mono);font-weight:700;color:${cheias>0?'var(--accent)':'var(--text2)'}">${cheias}</td>
       <td class="col-total" style="font-family:var(--font-mono);font-weight:700;color:${total>0?'var(--text)':'var(--text3)'}">${total}</td>` : '';
     return `<tr>
@@ -1506,7 +1506,7 @@ window.renderBaixaSaldo = () => {
       <td style="color:var(--accent)">${esc(cli?.nome||'–')}</td>
       <td style="display:none;font-family:var(--font-mono)">${entradas}</td>
       <td style="display:none;font-family:var(--font-mono)">${baixas}</td>
-      <td class="col-vazias" style="font-family:var(--font-mono);font-weight:700;color:${vazio>0?'#60a5fa':'var(--text2)'}">${vazio}</td>
+      <td class="col-vazias" style="font-family:var(--font-mono);font-weight:700;color:${vazio>0?'var(--info)':'var(--text2)'}">${vazio}</td>
       <td class="col-cheias" style="font-family:var(--font-mono);font-weight:700;color:${cheio>0?'var(--accent)':'var(--text2)'}">${cheio}</td>
       <td class="col-total" style="font-family:var(--font-mono);font-weight:700;color:${total>0?'var(--text)':'var(--text3)'}">${total}${semSaldo?' <span style="font-size:10px;color:var(--warn);font-family:var(--font-body);font-weight:600;">· sem saldo</span>':''}</td>
       <td>${canWrite?`<button class="btn btn-secondary btn-sm" onclick="openModalBaixa('${e.id}')" ${semSaldo?'disabled':''} title="${semSaldo?'Sem saldo disponível para baixa':'Realizar baixa deste item'}">📉 Realizar Baixa</button>`:''}</td>
@@ -2947,7 +2947,7 @@ window.renderInventario = () => {
     const cheiasVal = importado ? importado.cheias : cheiasAtual;
     return `<tr>
       <td><div style="font-family:var(--font-mono);font-size:13px">${esc(e.codigo)}</div><div style="font-size:12px;color:var(--text2)">${esc(e.descricao||'–')}</div></td>
-      <td class="col-vazias" style="font-family:var(--font-mono);font-weight:700;color:${vaziasAtual>0?'#60a5fa':'var(--text2)'}">${vaziasAtual}</td>
+      <td class="col-vazias" style="font-family:var(--font-mono);font-weight:700;color:${vaziasAtual>0?'var(--info)':'var(--text2)'}">${vaziasAtual}</td>
       <td class="col-vazias"><input type="number" class="inv-input inv-vazias" min="0" value="${vaziasVal}" data-emb-id="${e.id}" data-atual="${vaziasAtual}" ${canAdmin?'':'readonly'} oninput="onInvInputChange(this)"></td>
       <td class="col-cheias" style="font-family:var(--font-mono);font-weight:700;color:${cheiasAtual>0?'var(--accent)':'var(--text2)'}">${cheiasAtual}</td>
       <td class="col-cheias"><input type="number" class="inv-input inv-cheias" min="0" value="${cheiasVal}" data-emb-id="${e.id}" data-atual="${cheiasAtual}" ${canAdmin?'':'readonly'} oninput="onInvInputChange(this)"></td>
