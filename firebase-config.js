@@ -5,6 +5,10 @@
 // e re-exportação das funções do SDK usadas pelo restante do sistema
 // (ver app.js).
 // ══════════════════════════════════════════════════════════════════════
+
+
+
+
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import {
   getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
@@ -19,12 +23,13 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging.js";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBcHeCClc-h0gY2CSYAifectpTfA5Lhgak",
-  authDomain: "embalagens-e7082.firebaseapp.com",
-  projectId: "embalagens-e7082",
-  storageBucket: "embalagens-e7082.firebasestorage.app",
-  messagingSenderId: "584399123007",
-  appId: "1:584399123007:web:b1f1d5f9306ad82629fe8a"
+  apiKey: "AIzaSyAmX8gVADeGgS9SFBdN18Y1MmVwzIlC2tE",
+  authDomain: "embalagens-19e30.firebaseapp.com",
+  projectId: "embalagens-19e30",
+  storageBucket: "embalagens-19e30.firebasestorage.app",
+  messagingSenderId: "202746410182",
+  appId: "1:202746410182:web:5275f53f8fe0db3a2b93c7",
+  measurementId: "G-B7DBN6DGGT"
 };
 
 export const fbApp = initializeApp(firebaseConfig);
