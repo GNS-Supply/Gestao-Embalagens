@@ -886,6 +886,26 @@ button {
 
   .table-wrap table {
     max-width: none;
+
+    /*
+     * BUG CORRIGIDO: as tabelas de Consulta, Catálogo/Embalagens, Baixa e
+     * Inventário nascem com "width:100%" (definido em style.css/style-yms.css).
+     * Isso trava a tabela na largura da tela e, como table-layout é "auto",
+     * o navegador é forçado a espremer as colunas com conteúdo mais longo
+     * (nome de cliente, código+descrição) até restar espaço só para 1
+     * caractere por linha — dando a impressão de texto "vertical". A rolagem
+     * horizontal do .table-wrap > div (ver acima) só funciona se a tabela
+     * puder ser mais larga que a tela; por isso sobrescrevemos aqui.
+     */
+    width: max-content;
+    min-width: 100%;
+  }
+
+  .table-embcat,
+  .table-consulta,
+  .table-cliemb {
+    width: max-content;
+    min-width: 100%;
   }
 
   /*

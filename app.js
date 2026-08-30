@@ -2886,7 +2886,7 @@ function getEmbalagens() {
     const sel = r.querySelector('.emb-sel');
     const inp = r.querySelector('.emb-cod');
     const codigo = (sel && !sel.disabled) ? (sel.options[sel.selectedIndex]?.dataset?.cod||sel.value) : (inp?.value.trim().toUpperCase()||'');
-    return { codigo, qtd: r.querySelector('.emb-qtd')?.value.trim()||'', clienteId, clienteNome: cliente?.nome||'' };
+    return { codigo, qtd: Number(r.querySelector('.emb-qtd')?.value.trim())||0, clienteId, clienteNome: cliente?.nome||'' };
   }).filter(e=>e.codigo||e.qtd||e.clienteId);
 }
 window.removeEmb=(id)=>{const el=document.getElementById(id);if(el)el.remove();};
