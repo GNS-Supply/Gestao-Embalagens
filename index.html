@@ -358,7 +358,7 @@
           </select>
         </div>
         <div class="field"><label>SALDO DISPONÍVEL</label><input type="text" id="sol-saldo" readonly value="–"></div>
-        <div class="field"><label>QUANTIDADE *</label><input type="number" id="sol-qtd" min="1" placeholder="0" oninput="validateSolQtd()"></div>
+        <div class="field"><label>QUANTIDADE *</label><input type="number" id="sol-qtd" min="1" step="1" placeholder="0" oninput="validateSolQtd()"></div>
       </div>
       <div id="sol-pendente-info" class="error-msg" style="display:none;background:rgba(255,107,53,.08);border-color:rgba(255,107,53,.25);color:var(--warn);"></div>
       <div style="margin-top:14px;">
@@ -653,7 +653,7 @@
     </div>
     <input type="hidden" id="planta-edit-id">
     <div style="display:flex;gap:10px;margin-top:8px;">
-      <button class="btn btn-primary" style="flex:1" onclick="salvarPlanta()">Salvar Planta</button>
+      <button class="btn btn-primary" id="btn-salvar-planta" style="flex:1" onclick="salvarPlanta()">Salvar Planta</button>
       <button class="btn btn-secondary" onclick="closeModal('modal-planta')">Cancelar</button>
     </div>
   </div>
@@ -667,7 +667,7 @@
     <div id="modal-cliente-error" class="error-msg"></div>
     <div class="form-grid">
       <div class="field full"><label>NOME DO CLIENTE *</label><input type="text" id="cli-nome" placeholder="Razão social / nome"></div>
-      <div class="field"><label>D+X (dias) *</label><input type="number" id="cli-dx" placeholder="Ex: 3" min="0"></div>
+      <div class="field"><label>D+X (dias) *</label><input type="number" id="cli-dx" placeholder="Ex: 3" min="0" step="1"></div>
       <div class="field full"><label>ÍCONE DO CLIENTE</label>
         <div class="single-upload-zone" onclick="document.getElementById('cli-icon-input').click()">
           <input type="file" id="cli-icon-input" accept="image/*" onchange="handleCliIcon(this)" style="display:none">
@@ -678,7 +678,7 @@
     </div>
     <input type="hidden" id="cli-edit-id">
     <div style="display:flex;gap:10px;margin-top:8px;">
-      <button class="btn btn-primary" style="flex:1" onclick="salvarCliente()">Salvar Cliente</button>
+      <button class="btn btn-primary" id="btn-salvar-cliente" style="flex:1" onclick="salvarCliente()">Salvar Cliente</button>
       <button class="btn btn-secondary" onclick="closeModal('modal-cliente')">Cancelar</button>
     </div>
   </div>
@@ -735,6 +735,9 @@
     <button class="modal-close" onclick="closeModal('modal-emb-cat')">✕</button>
     <div class="modal-title" id="modal-emb-cat-title">Nova Embalagem</div>
     <div id="modal-emb-cat-error" class="error-msg"></div>
+    <div id="emb-cat-travado-hint" class="error-msg" style="display:none;background:rgba(44,110,142,.08);border-color:var(--info);color:var(--info);">
+      🔒 Esta embalagem já tem movimentações (entradas, baixas, solicitações ou saldo). Cliente e código ficam travados para não quebrar o histórico — edite os demais campos normalmente.
+    </div>
     <div class="form-grid">
       <div class="field full"><label>CLIENTE *</label>
         <select id="emb-cat-cli">
@@ -744,8 +747,8 @@
       <div class="field"><label>CÓDIGO DA EMBALAGEM *</label><input type="text" id="emb-cat-cod" placeholder="Ex: EMB-001" oninput="this.value=this.value.toUpperCase()"></div>
       <div class="field"><label>DESCRIÇÃO *</label><input type="text" id="emb-cat-desc" placeholder="Descrição da embalagem"></div>
       <div class="field"><label>NOME INTERNO</label><input type="text" id="emb-cat-nome-int" placeholder="Nome interno"></div>
-      <div class="field"><label>CÓD. DATASUL</label><input type="number" id="emb-cat-datasul" placeholder="000000"></div>
-      <div class="field"><label>QTD. POR FARDO</label><input type="number" id="emb-cat-fardo" placeholder="0" min="0"></div>
+      <div class="field"><label>CÓD. DATASUL</label><input type="number" id="emb-cat-datasul" placeholder="000000" min="0" step="1"></div>
+      <div class="field"><label>QTD. POR FARDO</label><input type="number" id="emb-cat-fardo" placeholder="0" min="0" step="1"></div>
       <div class="field"><label>VALOR DA EMBALAGEM (R$)</label><input type="number" id="emb-cat-valor" placeholder="0,00" step="0.01" min="0"></div>
       <div class="field full"><label>ITENS DA EMBALAGEM</label><textarea id="emb-cat-itens" placeholder="Descreva os itens contidos na embalagem…" rows="3"></textarea></div>
       <div class="field full"><label>IMAGEM DE CAPA</label>
@@ -758,7 +761,7 @@
     </div>
     <input type="hidden" id="emb-cat-edit-id">
     <div style="display:flex;gap:10px;margin-top:8px;">
-      <button class="btn btn-primary" style="flex:1" onclick="salvarEmbCat()">Salvar Embalagem</button>
+      <button class="btn btn-primary" id="btn-salvar-embcat" style="flex:1" onclick="salvarEmbCat()">Salvar Embalagem</button>
       <button class="btn btn-secondary" onclick="closeModal('modal-emb-cat')">Cancelar</button>
     </div>
   </div>
@@ -860,8 +863,8 @@
     </div>
     <div class="field"><label>USUÁRIO <span style="color:var(--accent);font-size:10px">AUTO</span></label><input type="text" id="baixa-usuario" readonly></div>
     <div class="form-grid" style="grid-template-columns:1fr 1fr;margin-bottom:16px;">
-      <div class="field" style="margin:0;"><label>QTD. A BAIXAR · <span style="color:var(--info)">VAZIAS</span></label><input type="number" id="baixa-qtd-vazias" min="0" value="0" oninput="validateBaixaForm()"></div>
-      <div class="field" style="margin:0;"><label>QTD. A BAIXAR · <span style="color:var(--accent)">CHEIAS</span></label><input type="number" id="baixa-qtd-cheias" min="0" value="0" oninput="validateBaixaForm()"></div>
+      <div class="field" style="margin:0;"><label>QTD. A BAIXAR · <span style="color:var(--info)">VAZIAS</span></label><input type="number" id="baixa-qtd-vazias" min="0" step="1" value="0" oninput="validateBaixaForm()"></div>
+      <div class="field" style="margin:0;"><label>QTD. A BAIXAR · <span style="color:var(--accent)">CHEIAS</span></label><input type="number" id="baixa-qtd-cheias" min="0" step="1" value="0" oninput="validateBaixaForm()"></div>
     </div>
     <div class="field"><label>MOTIVO / OBSERVAÇÃO</label><textarea id="baixa-obs" rows="2" placeholder="Opcional…"></textarea></div>
     <input type="hidden" id="baixa-cli-id">
@@ -889,7 +892,7 @@
       <div class="detail-item"><label>SALDO DISPONÍVEL</label><span id="atender-info-saldo" style="font-family:var(--font-mono);color:var(--accent)">0</span></div>
     </div>
     <div class="field"><label>USUÁRIO <span style="color:var(--accent);font-size:10px">AUTO</span></label><input type="text" id="atender-usuario" readonly></div>
-    <div class="field"><label>QUANTIDADE ENTREGUE *</label><input type="number" id="atender-qtd" min="1" placeholder="0"></div>
+    <div class="field"><label>QUANTIDADE ENTREGUE *</label><input type="number" id="atender-qtd" min="1" step="1" placeholder="0"></div>
     <input type="hidden" id="atender-sol-id">
     <div style="display:flex;gap:10px;margin-top:8px;">
       <button class="btn btn-primary" style="flex:1" id="btn-confirmar-atender" onclick="confirmarAtender()">Confirmar Atendimento</button>

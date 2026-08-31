@@ -907,6 +907,10 @@ window.salvarPlanta = async () => {
   if(!nome || !codigo){ errEl.textContent='Preencha nome e código da planta.'; errEl.style.display='block'; return; }
   const codigoDuplicado = window._plantas.some(p=>p.codigo?.toUpperCase()===codigo && p.id!==id);
   if(codigoDuplicado){ errEl.textContent='Já existe uma planta com este código.'; errEl.style.display='block'; return; }
+  const nomeDuplicado = window._plantas.some(p=>p.nome?.trim().toLowerCase()===nome.toLowerCase() && p.id!==id);
+  if(nomeDuplicado){ errEl.textContent='Já existe uma planta com este nome.'; errEl.style.display='block'; return; }
+  const btn = document.getElementById('btn-salvar-planta');
+  btn.disabled = true; btn.textContent = 'Salvando...';
   try{
     if(id){
       await updateDoc(doc(db,'plantas',id), { nome, codigo });
@@ -917,6 +921,7 @@ window.salvarPlanta = async () => {
     closeModal('modal-planta');
     await loadPlantas();
   }catch(e){ errEl.textContent = 'Erro: '+e.message; errEl.style.display='block'; }
+  finally{ btn.disabled = false; btn.textContent = 'Salvar Planta'; }
 };
 
 window.togglePlantaAtiva = async (id, ativar) => {
@@ -1036,7 +1041,13 @@ window.salvarCliente = async () => {
   if (!nome)       { showErr(errEl,'Informe o nome do cliente.'); return; }
   if (dx===''||isNaN(Number(dx))){ showErr(errEl,'Informe o valor D+X.'); return; }
   const editId = document.getElementById('cli-edit-id').value;
+  // evita duplicidade de cadastro (mesmo cliente com nomes idênticos fragmentaria o
+  // histórico/saldo em dois registros diferentes)
+  const nomeDuplicado = window._clientes.some(c=>c.nome?.trim().toLowerCase()===nome.toLowerCase() && c.id!==editId);
+  if (nomeDuplicado){ showErr(errEl,'Já existe um cliente cadastrado com este nome.'); return; }
   const icone = window._cliIconData||'';
+  const btn = document.getElementById('btn-salvar-cliente');
+  btn.disabled = true; btn.textContent = 'Salvando...';
   try {
     if (editId) {
       const antes = window._clientes.find(c=>c.id===editId);
@@ -1062,6 +1073,7 @@ window.salvarCliente = async () => {
     populateClienteSelects();
     renderClientes();
   } catch(e){ showErr(errEl,'Erro: '+e.message); }
+  finally{ btn.disabled = false; btn.textContent = 'Salvar Cliente'; }
 };
  
 window.askDeleteCli = (id) => {
@@ -1584,6 +1596,7 @@ window.confirmarBaixa = async () => {
   const eLocal = window._embCat.find(x=>x.id===embCatId);
   if(!eLocal){ showErr(errEl,'Embalagem não encontrada.'); return; }
   if(qtdVazias<=0 && qtdCheias<=0){ showErr(errEl, 'Informe uma quantidade maior que zero em Vazias ou em Cheias.'); return; }
+  if(!qtdInteiraValida(qtdVazias) || !qtdInteiraValida(qtdCheias)){ showErr(errEl, 'As quantidades devem ser números inteiros.'); return; }
  
   const cli = window._clientes.find(c=>c.id===clienteId);
   const btn = document.getElementById('btn-confirmar-baixa');
@@ -1941,6 +1954,7 @@ window.salvarSolicitacao = async () => {
   if(!embId)  { showToast('⚠ Selecione a embalagem.', true); return; }
   if(!qtdRaw || isNaN(Number(qtdRaw)) || Number(qtdRaw)<=0){ showToast('⚠ Informe uma quantidade válida.', true); return; }
   const qtd = Number(qtdRaw);
+  if(!qtdInteiraValida(qtd)){ showToast('⚠ A quantidade deve ser um número inteiro (não é possível solicitar fração de embalagem).', true); return; }
   const e = window._embCat.find(x=>x.id===embId);
   if(!e){ showToast('Embalagem não encontrada.', true); return; }
   const saldoTotal = getSaldoDisponivel(e);
@@ -2059,6 +2073,7 @@ window.confirmarAtender = async () => {
   if(s.status==='ATENDIDO'){ showErr(errEl,'Esta solicitação já foi atendida.'); return; }
   if(!qtdRaw || isNaN(Number(qtdRaw)) || Number(qtdRaw)<=0){ showErr(errEl,'Informe uma quantidade válida.'); return; }
   const qtd = Number(qtdRaw);
+  if(!qtdInteiraValida(qtd)){ showErr(errEl,'A quantidade deve ser um número inteiro.'); return; }
   // embCatId é gravado na solicitação desde a criação; fallback por código+cliente cobre registros antigos
   const embCatId = s.embCatId || window._embCat.find(x=>x.codigo===s.codigo && x.clienteId===s.clienteId)?.id;
   if(!embCatId){ showErr(errEl,'Embalagem vinculada não encontrada no catálogo.'); return; }
@@ -2279,7 +2294,7 @@ window.addNfItemRow = () => {
       </select>
     </div>
     <div class="field"><label>SALDO DISPONÍVEL</label><input type="text" class="nf-item-saldo" readonly value="–"></div>
-    <div class="field"><label>QUANTIDADE *</label><input type="number" class="nf-item-qtd" min="1" placeholder="0" oninput="onNfItemChange(this)"></div>
+    <div class="field"><label>QUANTIDADE *</label><input type="number" class="nf-item-qtd" min="1" step="1" placeholder="0" oninput="onNfItemChange(this)"></div>
     <button class="btn-rem-emb" type="button" onclick="removeNfItem('${id}')">✕</button>`;
   list.appendChild(row);
 };
@@ -2362,6 +2377,7 @@ window.salvarSolicitacaoNF = async () => {
   for(const it of itens){
     if(!it.embCatId){ showErr(errEl,'Selecione a embalagem em todos os itens.'); return; }
     if(!it.qtd || it.qtd<=0){ showErr(errEl,'Informe uma quantidade válida em todos os itens.'); return; }
+    if(!qtdInteiraValida(it.qtd)){ showErr(errEl,`Quantidade de ${it.codigo} deve ser um número inteiro.`); return; }
     const e = window._embCat.find(x=>x.id===it.embCatId);
     const saldoAtual = (it.tipoEmbalagem==='CHEIA') ? getSaldoCheias(e) : getSaldoVazias(e);
     const reservado = getTotalPendentesNF(it.embCatId, it.tipoEmbalagem);
@@ -2528,7 +2544,7 @@ window.openModalConcluirNF = (id) => {
         </select>
       </div>
       <div class="field"><label>SALDO ATUAL</label><input type="text" readonly value="${saldoAtual}"></div>
-      <div class="field"><label>QUANTIDADE *</label><input type="number" class="concluir-nf-item-qtd" min="1" value="${it.qtd}"></div>
+      <div class="field"><label>QUANTIDADE *</label><input type="number" class="concluir-nf-item-qtd" min="1" step="1" value="${it.qtd}"></div>
     </div>`;
   }).join('');
   document.getElementById('modal-concluir-nf').classList.add('open');
@@ -2555,7 +2571,10 @@ window.confirmarConcluirNF = async () => {
     tipoEmbalagem: row.querySelector('.concluir-nf-item-tipo').value,
     qtd: Number(row.querySelector('.concluir-nf-item-qtd').value)||0
   }));
-  for(const it of linhas){ if(!it.qtd || it.qtd<=0){ showErr(errEl,'Todas as quantidades devem ser maiores que zero.'); return; } }
+  for(const it of linhas){
+    if(!it.qtd || it.qtd<=0){ showErr(errEl,'Todas as quantidades devem ser maiores que zero.'); return; }
+    if(!qtdInteiraValida(it.qtd)){ showErr(errEl,`Quantidade de ${it.codigo} deve ser um número inteiro.`); return; }
+  }
 
   const btn = document.getElementById('btn-confirmar-concluir-nf');
   btn.disabled = true; btn.textContent = 'Confirmando...';
@@ -2640,6 +2659,8 @@ window.openModalEmbCat = (id) => {
   document.getElementById('modal-emb-cat-error').style.display='none';
   populateClienteSelects();
   const prev=document.getElementById('emb-cat-capa-preview'), ph=document.getElementById('emb-cat-capa-placeholder');
+  const cliSel = document.getElementById('emb-cat-cli'), codInput = document.getElementById('emb-cat-cod');
+  const travadoHint = document.getElementById('emb-cat-travado-hint');
   if(id){
     const e=window._embCat.find(x=>x.id===id);
     document.getElementById('modal-emb-cat-title').textContent='Editar Embalagem';
@@ -2655,15 +2676,39 @@ window.openModalEmbCat = (id) => {
     window._embCapaData = e.capa||'';
     if(e.capa){prev.src=e.capa;prev.style.display='block';ph.style.display='none';}
     else{prev.style.display='none';ph.style.display='inline-block';}
+    // código e cliente só podem ser trocados enquanto a embalagem ainda não tem nenhuma
+    // movimentação registrada — ver embTemMovimentacao() e a validação espelhada em salvarEmbCat()
+    const travado = embTemMovimentacao(e);
+    cliSel.disabled = travado; codInput.disabled = travado;
+    travadoHint.style.display = travado ? 'block' : 'none';
   } else {
     document.getElementById('modal-emb-cat-title').textContent='Nova Embalagem';
     ['emb-cat-cli','emb-cat-cod','emb-cat-desc','emb-cat-nome-int','emb-cat-datasul','emb-cat-fardo','emb-cat-valor','emb-cat-itens'].forEach(id=>{document.getElementById(id).value='';});
     document.getElementById('emb-cat-edit-id').value='';
     window._embCapaData=''; prev.style.display='none'; ph.style.display='inline-block';
+    cliSel.disabled = false; codInput.disabled = false;
+    travadoHint.style.display = 'none';
   }
   document.getElementById('modal-emb-cat').classList.add('open');
 };
  
+// Uma vez que uma embalagem já tem QUALQUER movimentação (entrada, baixa, solicitação, NF,
+// ajuste de inventário) ou saldo diferente de zero, o código e o cliente dela NUNCA MAIS podem
+// ser trocados — mudar esses dois campos depois de já existir histórico quebra silenciosamente
+// o vínculo com tudo que já foi registrado (registros antigos casam por código+cliente, já que
+// não guardam o embCatId), fazendo o saldo "sumir" ou aparecer duplicado. Ver salvarEmbCat().
+function embTemMovimentacao(emb){
+  if(!emb) return false;
+  if((window._registros||[]).some(r=>(r.embalagens||[]).some(it=>it.codigo===emb.codigo && it.clienteId===emb.clienteId))) return true;
+  if((window._baixas||[]).some(b=>b.embCatId===emb.id || (b.codigo===emb.codigo && b.clienteId===emb.clienteId))) return true;
+  if((window._solicitacoes||[]).some(s=>s.embCatId===emb.id)) return true;
+  if((window._solicitacoesNF||[]).some(nf=>(nf.itens||[]).some(it=>it.embCatId===emb.id))) return true;
+  if((window._ajustesInventario||[]).some(a=>a.embCatId===emb.id)) return true;
+  const saldo = window._saldos?.[emb.id];
+  if(saldo && ((Number(saldo.vazias)||0)>0 || (Number(saldo.cheias)||0)>0)) return true;
+  return false;
+}
+
 window.salvarEmbCat = async () => {
   const cliId   = document.getElementById('emb-cat-cli').value;
   const codigo  = document.getElementById('emb-cat-cod').value.trim().toUpperCase();
@@ -2676,6 +2721,15 @@ window.salvarEmbCat = async () => {
   if(!desc)   {showErr(errEl,'Informe a descrição.');return;}
   const dupCodigo = window._embCat.some(e=>e.codigo===codigo && e.clienteId===cliId && e.id!==editId);
   if(dupCodigo){showErr(errEl,'Este cliente já possui uma embalagem cadastrada com este código.');return;}
+  if(editId){
+    const original = window._embCat.find(e=>e.id===editId);
+    if(original && embTemMovimentacao(original) && (original.codigo!==codigo || original.clienteId!==cliId)){
+      showErr(errEl, 'Esta embalagem já tem movimentações (entradas, baixas, solicitações ou saldo). Código e cliente não podem mais ser alterados — edite apenas descrição, nome interno e demais dados, ou cadastre uma nova embalagem.');
+      return;
+    }
+  }
+  const btn = document.getElementById('btn-salvar-embcat');
+  btn.disabled = true; btn.textContent = 'Salvando...';
   const valorRaw = document.getElementById('emb-cat-valor').value;
   const data = { clienteId:cliId, codigo, descricao:desc,
     nomeInterno: document.getElementById('emb-cat-nome-int').value.trim(),
@@ -2710,6 +2764,7 @@ window.salvarEmbCat = async () => {
     closeModal('modal-emb-cat');
     renderEmbCat();
   } catch(e){showErr(errEl,'Erro: '+e.message);}
+  finally{ btn.disabled = false; btn.textContent = 'Salvar Embalagem'; }
 };
  
 window.askDeleteEmb=(id)=>{
@@ -2854,7 +2909,7 @@ window.addEmbRow = () => {
     <div class="field" id="${id}_embfield"><label>EMBALAGEM *</label>
       <select class="emb-sel" disabled><option value="">— Selecione o cliente —</option></select>
     </div>
-    <div class="field"><label>QUANTIDADE *</label><input type="number" class="emb-qtd" placeholder="0" min="1"></div>
+    <div class="field"><label>QUANTIDADE *</label><input type="number" class="emb-qtd" placeholder="0" min="1" step="1"></div>
     <button class="btn-rem-emb" type="button" onclick="removeEmb('${id}')">✕</button>`;
   list.appendChild(row);
 };
@@ -2885,8 +2940,13 @@ function getEmbalagens() {
     const cliente = window._clientes.find(c=>c.id===clienteId);
     const sel = r.querySelector('.emb-sel');
     const inp = r.querySelector('.emb-cod');
-    const codigo = (sel && !sel.disabled) ? (sel.options[sel.selectedIndex]?.dataset?.cod||sel.value) : (inp?.value.trim().toUpperCase()||'');
-    return { codigo, qtd: Number(r.querySelector('.emb-qtd')?.value.trim())||0, clienteId, clienteNome: cliente?.nome||'' };
+    const usandoCatalogo = sel && !sel.disabled && sel.value;
+    const codigo = usandoCatalogo ? (sel.options[sel.selectedIndex]?.dataset?.cod||sel.value) : (inp?.value.trim().toUpperCase()||'');
+    // embCatId só existe quando a embalagem foi escolhida do catálogo (select) — no modo de texto
+    // livre (cliente ainda sem nenhuma embalagem cadastrada) não há como vincular a um saldo
+    // rastreável; ver o aviso correspondente em salvarRegistro().
+    const embCatId = usandoCatalogo ? sel.value : null;
+    return { codigo, embCatId, qtd: Number(r.querySelector('.emb-qtd')?.value.trim())||0, clienteId, clienteNome: cliente?.nome||'' };
   }).filter(e=>e.codigo||e.qtd||e.clienteId);
 }
 window.removeEmb=(id)=>{const el=document.getElementById(id);if(el)el.remove();};
@@ -2948,9 +3008,9 @@ window.renderInventario = () => {
     return `<tr>
       <td><div style="font-family:var(--font-mono);font-size:13px">${esc(e.codigo)}</div><div style="font-size:12px;color:var(--text2)">${esc(e.descricao||'–')}</div></td>
       <td class="col-vazias" style="font-family:var(--font-mono);font-weight:700;color:${vaziasAtual>0?'var(--info)':'var(--text2)'}">${vaziasAtual}</td>
-      <td class="col-vazias"><input type="number" class="inv-input inv-vazias" min="0" value="${vaziasVal}" data-emb-id="${e.id}" data-atual="${vaziasAtual}" ${canAdmin?'':'readonly'} oninput="onInvInputChange(this)"></td>
+      <td class="col-vazias"><input type="number" class="inv-input inv-vazias" min="0" step="1" value="${vaziasVal}" data-emb-id="${e.id}" data-atual="${vaziasAtual}" ${canAdmin?'':'readonly'} oninput="onInvInputChange(this)"></td>
       <td class="col-cheias" style="font-family:var(--font-mono);font-weight:700;color:${cheiasAtual>0?'var(--accent)':'var(--text2)'}">${cheiasAtual}</td>
-      <td class="col-cheias"><input type="number" class="inv-input inv-cheias" min="0" value="${cheiasVal}" data-emb-id="${e.id}" data-atual="${cheiasAtual}" ${canAdmin?'':'readonly'} oninput="onInvInputChange(this)"></td>
+      <td class="col-cheias"><input type="number" class="inv-input inv-cheias" min="0" step="1" value="${cheiasVal}" data-emb-id="${e.id}" data-atual="${cheiasAtual}" ${canAdmin?'':'readonly'} oninput="onInvInputChange(this)"></td>
     </tr>`;
   }).join('');
   // realça de imediato as células que já vieram divergentes de uma importação anterior
@@ -2974,11 +3034,13 @@ function getInventarioRowsFromDOM(){
     const embCatId = cheiasInput.dataset.embId;
     const cheiasAtual = Number(cheiasInput.dataset.atual)||0;
     const vaziasAtual = Number(vaziasInput.dataset.atual)||0;
-    let cheiasNovo = Number(cheiasInput.value);
-    let vaziasNovo = Number(vaziasInput.value);
-    if(isNaN(cheiasNovo) || cheiasNovo<0) cheiasNovo = cheiasAtual;
-    if(isNaN(vaziasNovo) || vaziasNovo<0) vaziasNovo = vaziasAtual;
-    rows.push({ embCatId, cheiasAtual, vaziasAtual, cheiasNovo, vaziasNovo });
+    const cheiasNovo = Number(cheiasInput.value);
+    const vaziasNovo = Number(vaziasInput.value);
+    // saldo de embalagem é sempre unidade inteira — um valor fracionário ou negativo aqui é
+    // erro de digitação, não uma contagem válida; sinalizamos em vez de "corrigir" silenciosamente
+    // (corrigir sem avisar faria o conferente achar que a contagem dele foi registrada certinha)
+    const invalido = isNaN(cheiasNovo) || isNaN(vaziasNovo) || !qtdInteiraValida(cheiasNovo) || !qtdInteiraValida(vaziasNovo);
+    rows.push({ embCatId, cheiasAtual, vaziasAtual, cheiasNovo, vaziasNovo, invalido });
   });
   return rows;
 }
@@ -3080,6 +3142,12 @@ window.confirmarInventario = async () => {
   const todasLinhas = getInventarioRowsFromDOM();
   const linhasAlteradas = todasLinhas.filter(r=>r.cheiasNovo!==r.cheiasAtual || r.vaziasNovo!==r.vaziasAtual);
   if(!linhasAlteradas.length){ showToast('Nenhuma alteração para confirmar.'); return; }
+  const linhaInvalida = linhasAlteradas.find(r=>r.invalido);
+  if(linhaInvalida){
+    const codigo = window._embCat.find(x=>x.id===linhaInvalida.embCatId)?.codigo || linhaInvalida.embCatId;
+    showToast(`⚠ Saldo apurado de ${codigo} inválido — deve ser um número inteiro maior ou igual a zero.`, true);
+    return;
+  }
  
   const btn = document.getElementById('btn-confirmar-inventario');
   btn.disabled = true; btn.textContent = 'Salvando...';
@@ -3170,7 +3238,46 @@ window.confirmarInventario = async () => {
   }
 };
  
+// ── RECONCILIAÇÃO DE SALDO (rodar 1x após a correção do bug de entradas) ────────────────
+// Antes desta correção, salvarRegistro() nunca incrementava o saldo persistido — então, para
+// qualquer embalagem que já tivesse tido ALGUMA baixa/atendimento (ou que passou pela migração
+// multi-planta), toda entrada registrada DEPOIS disso ficou "invisível", subestimando o saldo real.
+// Rode UMA VEZ por planta, logado como administrador (console do navegador, F12), estando com a
+// planta certa selecionada no topo do app:  reconciliarSaldos()
+// Ela recalcula o saldo de TODAS as embalagens a partir do histórico completo (entradas − baixas
+// − atendidos) já carregado localmente, e corrige apenas as que estiverem divergentes — mostra no
+// console exatamente o que foi de → para em cada uma, para você conferir antes de confiar no total.
+window.reconciliarSaldos = async function(){
+  if (window._userRole!=='administrador' && !isAdmMaster()) { console.warn('Apenas administrador pode rodar a reconciliação.'); return; }
+  const pid = window._plantaAtual || 'matriz';
+  console.log(`[reconciliação] Planta: ${pid}. Recalculando saldo de ${window._embCat.length} embalagem(ns) a partir do histórico completo...`);
+  let corrigidas = 0, jaCorretas = 0;
+  for(const e of window._embCat){
+    const vaziasCorretas = computeSaldoVaziasFromHistorico(e);
+    const cheiasCorretas = computeSaldoCheiasFromHistorico(e);
+    const atual = window._saldos[e.id] || { vazias:0, cheias:0 };
+    if(atual.vazias !== vaziasCorretas || atual.cheias !== cheiasCorretas){
+      const saldoRef = doc(db,'embalagensCat', e.id, 'saldos', pid);
+      await setDoc(saldoRef, { plantaId: pid, vazias: vaziasCorretas, cheias: cheiasCorretas, atualizadoEm: serverTimestamp() }, { merge:true });
+      console.log(`[reconciliação] ${e.codigo} (cliente ${e.clienteId}): vazias ${atual.vazias}→${vaziasCorretas}, cheias ${atual.cheias}→${cheiasCorretas}`);
+      corrigidas++;
+    } else {
+      jaCorretas++;
+    }
+  }
+  console.log(`[reconciliação] Concluída: ${corrigidas} corrigida(s), ${jaCorretas} já estavam certas. Recarregue a página.`);
+};
+
 // ── SALVAR REGISTRO ────────────────────────────────────
+// Entrada de embalagem SEMPRE aumenta o saldo de VAZIAS (regra de negócio). Antes desta correção,
+// salvarRegistro() só gravava o documento em `registros` e nunca tocava no saldo persistido — o
+// saldo "funcionava" antigamente só porque, sem nenhum baixa/atendimento ainda registrado para a
+// embalagem, a tela recalculava o total a partir do histórico completo a cada consulta. Assim que
+// existe QUALQUER baixa/atendimento (ou, agora, o subdoc criado pela migração multi-planta), esse
+// recálculo para de rodar e passa a confiar só no valor persistido — e como nada nunca incrementava
+// esse valor na entrada, toda entrada nova ficava "invisível" no saldo. Por isso agora a gravação
+// do registro roda dentro de uma transação que também incrementa o saldo de cada embalagem
+// catalogada envolvida.
 window.salvarRegistro = async () => {
   if(!['operador','administrador'].includes(window._userRole)){showToast('Sem permissão.',true);return;}
   const placa   = document.getElementById('f-placa').value.trim().toUpperCase();
@@ -3181,29 +3288,66 @@ window.salvarRegistro = async () => {
   if(placa && !/^[A-Z]{3}-[0-9][A-Z0-9][0-9]{2}$/.test(placa)){showToast('⚠ Placa inválida. Use o formato AAA-0A00 ou AAA-0000.',true);return;}
   if(!nota)   {showToast('⚠ Informe a nota fiscal.',true);return;}
   if(!embs.length||embs.some(e=>!e.clienteId||!e.codigo||!e.qtd)){showToast('⚠ Informe o cliente, código e quantidade em todas as embalagens.',true);return;}
+  if(embs.some(e=>!qtdInteiraValida(e.qtd)||e.qtd<=0)){showToast('⚠ A quantidade de cada embalagem deve ser um número inteiro maior que zero.',true);return;}
+  // itens sem embCatId (cliente ainda sem NENHUMA embalagem cadastrada, exigindo texto livre) não
+  // têm onde guardar saldo — cadastre a embalagem no catálogo antes, ou o item fica só no histórico
+  // do registro, sem contar para o saldo disponível de baixa/solicitação/NF.
+  const semCatalogo = embs.filter(e=>!e.embCatId);
+  if(semCatalogo.length){
+    const codigos = semCatalogo.map(e=>e.codigo).join(', ');
+    if(!confirm(`Atenção: ${codigos} não está(ão) cadastrado(s) no catálogo desta planta. A entrada será salva no histórico, mas NÃO vai contar no saldo disponível até a embalagem ser cadastrada em "Catálogo/Embalagens". Deseja continuar mesmo assim?`)) return;
+  }
   const clientesNomes = [...new Set(embs.map(e=>e.clienteNome).filter(Boolean))];
   const btn=document.getElementById('btn-salvar');
   btn.textContent='Salvando...';btn.disabled=true;
+  const pid = window._plantaAtual || 'matriz';
+  const novoRegRef = doc(collection(db,'registros')); // ID gerado antecipadamente para gravar dentro da transação
+  // soma a quantidade por embalagem (uma mesma embalagem pode aparecer em 2 linhas do mesmo registro)
+  const qtdPorEmb = {};
+  embs.filter(e=>e.embCatId).forEach(e=>{ qtdPorEmb[e.embCatId] = (qtdPorEmb[e.embCatId]||0) + e.qtd; });
+  const embCatIds = Object.keys(qtdPorEmb);
   try{
-    await addDoc(collection(db,'registros'),{
-      dataHora:formatDt(new Date()), timestamp:serverTimestamp(),
-      usuario:window._currentUser.displayName||window._currentUser.email,
-      uid:window._currentUser.uid,
-      plantaId: window._plantaAtual || 'matriz',
-      placa, transportadora, nota,
-      clientesNomes,
-      embalagens:embs, obs, fotos:window._fotos
+    await runTransaction(db, async (transaction) => {
+      // 1ª fase: leituras — doc da embalagem (existência) + saldo atual, para cada embalagem envolvida
+      const saldos = {};
+      for(const embCatId of embCatIds){
+        const embRef = doc(db,'embalagensCat', embCatId);
+        const embSnap = await transaction.get(embRef);
+        if(!embSnap.exists()) throw new Error(`Embalagem não encontrada no catálogo (${embCatId}).`);
+        const eLocal = window._embCat.find(x=>x.id===embCatId);
+        saldos[embCatId] = await lerSaldoPlantaTx(transaction, embCatId, pid, embSnap.data(), eLocal);
+      }
+      // 2ª fase: escritas — incrementa VAZIAS de cada embalagem + grava o registro
+      for(const embCatId of embCatIds){
+        const s = saldos[embCatId];
+        gravarSaldoPlantaTx(transaction, s.ref, pid, s.vazias + qtdPorEmb[embCatId], s.cheias);
+      }
+      transaction.set(novoRegRef, {
+        dataHora:formatDt(new Date()), timestamp:serverTimestamp(),
+        usuario:window._currentUser.displayName||window._currentUser.email,
+        uid:window._currentUser.uid,
+        plantaId: pid,
+        placa, transportadora, nota,
+        clientesNomes,
+        embalagens:embs, obs, fotos:window._fotos
+      });
+    });
+    // reflete localmente o saldo já confirmado pela transação
+    embCatIds.forEach(embCatId=>{
+      const eAtual = window._embCat.find(x=>x.id===embCatId) || {id:embCatId};
+      window._saldos[embCatId] = { vazias: getSaldoVazias(eAtual) + qtdPorEmb[embCatId], cheias: getSaldoCheias(eAtual) };
     });
     showToast('✓ Registro salvo!');
     embs.forEach(item=>{
       registrarAuditLog({
         tipoEvento:'ENTRADA', codigoItem:item.codigo, cliente:item.clienteNome||'',
         qtdVazias:Number(item.qtd)||0, qtdCheias:0,
-        detalhes:{ nota, placa, transportadora, obs }
+        detalhes:{ nota, placa, transportadora, obs, embCatId:item.embCatId||null }
       });
     });
     limparForm();
     await loadRegistros();
+    renderEmbCat();
     switchTab('consulta');
   }catch(e){showToast('✕ Erro: '+(e.code||e.message),true);}
   finally{btn.textContent='✓ Salvar Registro';btn.disabled=false;}
@@ -3758,6 +3902,13 @@ window.closeModal=(id)=>document.getElementById(id).classList.remove('open');
 window.showToast=(msg,error=false)=>{const t=document.getElementById('toast');t.textContent=msg;t.className='toast show'+(error?' error':'');clearTimeout(window._tt);window._tt=setTimeout(()=>{t.className='toast';},3500);};
 function showErr(el,msg){el.style.display='block';el.textContent=msg;}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+// Quantidade de embalagem é sempre uma contagem de unidades físicas — nunca fracionária.
+// O atributo HTML step="1" já orienta o teclado/stepper, mas alguns navegadores/dispositivos
+// ainda permitem digitar "5.5" na mão; esta função é a validação de verdade, chamada em todo
+// ponto que grava uma quantidade (evita registrar frações de embalagem por descuido de digitação).
+function qtdInteiraValida(n){
+  return Number.isInteger(n) && n >= 0;
+}
  
 ['modal-detail','modal-delete','modal-cliente','modal-delete-cli','modal-emb-cat','modal-delete-emb','modal-import-emb','modal-import-inv','modal-baixa','modal-atender','modal-recusar','modal-sol-detail','modal-historico','modal-cliente-embalagens','modal-exportar-auditoria','modal-notificacoes','modal-planta','modal-concluir-nf'].forEach(id=>document.getElementById(id)?.addEventListener('click',function(e){if(e.target===this)closeModal(id);}));
 document.getElementById('img-viewer')?.addEventListener('click',function(e){if(e.target===this)closeImgViewer();});
