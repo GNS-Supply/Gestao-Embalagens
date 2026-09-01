@@ -27,11 +27,16 @@
   }
 </script>
 <style>
-  .planta-indicator-wrap{display:flex;align-items:center;}
-  .planta-indicator-wrap #planta-badge{display:inline-flex;align-items:center;gap:4px;background:var(--bg);border:1px solid var(--border);}
+  .planta-indicator-wrap{display:flex;align-items:center;gap:6px;margin-right:8px;}
+  .planta-indicator-wrap #planta-badge{
+    display:inline-flex;align-items:center;gap:4px;
+    color:rgba(255,255,255,.88);
+    font-size:12px;
+    white-space:nowrap;
+  }
   .planta-indicator-wrap.planta-diferente #planta-badge,
-  .planta-indicator-wrap.planta-diferente #topbar-planta-select{border-color:var(--warn);color:var(--warn);}
-  .planta-indicator-wrap.planta-diferente::after{content:'⚠ outra planta';font-size:10px;color:var(--warn);margin-left:6px;white-space:nowrap;}
+  .planta-indicator-wrap.planta-diferente #topbar-planta-select{color:#FFB020;}
+  .planta-indicator-wrap.planta-diferente::after{content:'⚠ outra planta';font-size:10px;color:#FFB020;white-space:nowrap;}
 </style>
 </head>
 <body>
@@ -94,7 +99,7 @@
     <div class="topbar-right">
       <div id="planta-indicator-wrap" class="planta-indicator-wrap" style="display:none;">
         <select id="topbar-planta-select" class="btn btn-secondary btn-sm planta-select-auto" style="display:none" onchange="onPlantaSelectChange(this.value)"></select>
-        <span id="planta-badge" class="role-tag" style="display:none;"></span>
+        <span id="planta-badge" style="display:none;"></span>
       </div>
       <div class="user-badge">Olá, <span id="topbar-name">–</span> <span id="topbar-role" class="role-tag"></span></div>
       <button class="btn btn-secondary btn-sm btn-icon admin-topbar-btn" id="btn-notif" onclick="openModalNotificacoes()" title="Notificações">🔔</button>

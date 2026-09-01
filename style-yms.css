@@ -543,6 +543,9 @@ h4,
 
   cursor: pointer;
 
+  white-space: nowrap; /* botão nunca deve quebrar o próprio texto, mesmo com a coluna apertada */
+  flex-shrink: 0; /* nem ser espremido pelo flex/grid do container ao redor */
+
   transition:
     background var(--transition),
     border-color var(--transition),
@@ -1392,7 +1395,8 @@ h4,
 }
 
 .table-wrap table {
-  width: 100%;
+  width: max-content; /* cresce além de 100% quando o conteúdo realmente precisa (ex: NF com 8 colunas), em vez de espremer texto/botão verticalmente — a rolagem horizontal do wrapper (ver .table-wrap > div) assume o resto */
+  min-width: 100%;
 
   border-collapse: collapse;
 
