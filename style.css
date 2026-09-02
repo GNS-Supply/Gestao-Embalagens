@@ -34,7 +34,7 @@
 
 *{box-sizing:border-box;margin:0;padding:0;}
 html{scroll-behavior:smooth;-webkit-text-size-adjust:100%;}
-body{background:var(--bg);color:var(--text);font-family:var(--font-body);min-height:100vh;font-size:15px;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;overflow-x:hidden;-webkit-tap-highlight-color:transparent;}
+body{background:var(--bg);color:var(--text);font-family:var(--font-body);min-height:100vh;font-size:15px;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;-webkit-tap-highlight-color:transparent;}
 button,input,select,textarea{font-family:inherit;}
 button{touch-action:manipulation;}
 ::selection{background:rgba(0,229,160,.22);color:var(--text);}
@@ -209,6 +209,16 @@ th.col-receb-a,th.col-receb-b{color:var(--text);}
 .table-solicitacoes th:nth-child(5),.table-solicitacoes td:nth-child(5){width:10%;}
 .table-solicitacoes th:nth-child(6),.table-solicitacoes td:nth-child(6){width:10%;}
 .table-solicitacoes th:nth-child(7),.table-solicitacoes td:nth-child(7){width:18%;}
+/* Solicitação de NF tem 8 colunas (uma a mais que Solicitações) — larguras próprias, para a
+   coluna de Ações (coluna 8, com 2 botões) não ficar sem espaço reservado nenhum. */
+.table-nf.table-solicitacoes th:nth-child(1),.table-nf.table-solicitacoes td:nth-child(1){width:12%;}
+.table-nf.table-solicitacoes th:nth-child(2),.table-nf.table-solicitacoes td:nth-child(2){width:14%;}
+.table-nf.table-solicitacoes th:nth-child(3),.table-nf.table-solicitacoes td:nth-child(3){width:16%;}
+.table-nf.table-solicitacoes th:nth-child(4),.table-nf.table-solicitacoes td:nth-child(4){width:13%;}
+.table-nf.table-solicitacoes th:nth-child(5),.table-nf.table-solicitacoes td:nth-child(5){width:10%;}
+.table-nf.table-solicitacoes th:nth-child(6),.table-nf.table-solicitacoes td:nth-child(6){width:9%;}
+.table-nf.table-solicitacoes th:nth-child(7),.table-nf.table-solicitacoes td:nth-child(7){width:11%;}
+.table-nf.table-solicitacoes th:nth-child(8),.table-nf.table-solicitacoes td:nth-child(8){width:15%;min-width:120px;}
 
 /* CONSULTA — MOBILE (mantém apenas Data / Cliente / Embalagens visíveis; o resto abre no modal de detalhes) */
 .table-consulta tbody tr{cursor:pointer;}

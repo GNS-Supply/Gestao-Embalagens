@@ -845,7 +845,7 @@ function renderPlantaSelectorTopbar(){
   } else {
     sel.style.display = 'none';
     badge.style.display = 'inline-flex';
-    badge.textContent = `🏭 ${nomeAtual}`;
+    badge.textContent = nomeAtual;
   }
   const diferente = window._plantaAtual !== window._plantaPadrao;
   wrap.classList.toggle('planta-diferente', diferente);
@@ -2536,18 +2536,40 @@ window.openModalConcluirNF = (id) => {
     const e = window._embCat.find(x=>x.id===it.embCatId);
     const saldoAtual = e ? (it.tipoEmbalagem==='CHEIA' ? getSaldoCheias(e) : getSaldoVazias(e)) : 0;
     return `<div class="emb-row" data-idx="${i}">
-      <div class="field" style="flex:2 1 220px;"><label>EMBALAGEM</label><input type="text" readonly value="${esc(it.codigo)} – ${esc(it.descricao)}"></div>
+      <div class="field" style="flex:2 1 220px;"><label>EMBALAGEM</label><input type="text" readonly class="concluir-nf-item-nome" value="${esc(it.codigo)} – ${esc(it.descricao)}"></div>
       <div class="field"><label>TIPO</label>
-        <select class="concluir-nf-item-tipo">
+        <select class="concluir-nf-item-tipo" data-original="${it.tipoEmbalagem}" onchange="onConcluirNfItemChange(this)">
           <option value="VAZIA" ${it.tipoEmbalagem==='VAZIA'?'selected':''}>Vazia</option>
           <option value="CHEIA" ${it.tipoEmbalagem==='CHEIA'?'selected':''}>Cheia</option>
         </select>
       </div>
       <div class="field"><label>SALDO ATUAL</label><input type="text" readonly value="${saldoAtual}"></div>
-      <div class="field"><label>QUANTIDADE *</label><input type="number" class="concluir-nf-item-qtd" min="1" step="1" value="${it.qtd}"></div>
+      <div class="field"><label>QUANTIDADE *</label><input type="number" class="concluir-nf-item-qtd" min="1" step="1" value="${it.qtd}" data-original="${it.qtd}" onchange="onConcluirNfItemChange(this)"></div>
     </div>`;
   }).join('');
   document.getElementById('modal-concluir-nf').classList.add('open');
+};
+
+// A quantidade e o tipo (Cheia/Vazia) aqui vêm do que foi ORIGINALMENTE solicitado — mudar
+// qualquer um dos dois muda a baixa de saldo que será aplicada na conclusão. Por isso, ao
+// confirmar a edição do campo (não a cada tecla — só quando o campo perde o foco com valor
+// diferente), pedimos confirmação explícita; se cancelar, o campo volta ao valor original.
+window.onConcluirNfItemChange = (el) => {
+  const row = el.closest('.emb-row'); if(!row) return;
+  const tipoEl = row.querySelector('.concluir-nf-item-tipo');
+  const qtdEl  = row.querySelector('.concluir-nf-item-qtd');
+  const tipoOriginal = tipoEl.dataset.original, qtdOriginal = qtdEl.dataset.original;
+  const tipoAtual = tipoEl.value, qtdAtual = qtdEl.value;
+  if(tipoAtual===tipoOriginal && qtdAtual===qtdOriginal) return; // voltou ao valor original — nada a confirmar
+  const nomeItem = row.querySelector('.concluir-nf-item-nome')?.value || 'este item';
+  const rotulo = (t)=> t==='CHEIA' ? 'Cheia' : 'Vazia';
+  const msg = `Você está alterando ${nomeItem}:\n`
+    + `De ${qtdOriginal} un. (${rotulo(tipoOriginal)}) para ${qtdAtual} un. (${rotulo(tipoAtual)}).\n\n`
+    + `Isso vai mudar a baixa de saldo que será registrada para esta embalagem. Deseja confirmar a alteração?`;
+  if(!confirm(msg)){
+    tipoEl.value = tipoOriginal;
+    qtdEl.value = qtdOriginal;
+  }
 };
 
 window.confirmarConcluirNF = async () => {

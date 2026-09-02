@@ -102,7 +102,6 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
-  overflow-x: hidden;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -937,7 +936,7 @@ h4,
 
   padding: 28px;
 
-  max-width: 1600px;
+  max-width: 1900px;
 
   margin: 0 auto;
 }
@@ -2645,6 +2644,16 @@ th.col-receb-b {
 
 .table-solicitacoes td {
   vertical-align: middle;
+}
+
+/* Coluna de ações (botões) precisa de uma largura mínima garantida — sem isso, quando a tabela
+   está vazia (nenhuma linha em tbody), o navegador não tem conteúdo para basear o cálculo de
+   largura automática da coluna, e o cabeçalho "Ações" acaba colapsando a ponto de quebrar o
+   texto letra por letra. */
+.table-solicitacoes th:last-child,
+.table-solicitacoes td:last-child {
+  min-width: 120px;
+  white-space: nowrap;
 }
 
 .table-solicitacoes .sol-emb-cell {

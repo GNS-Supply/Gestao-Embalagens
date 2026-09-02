@@ -37,6 +37,9 @@
   .planta-indicator-wrap.planta-diferente #planta-badge,
   .planta-indicator-wrap.planta-diferente #topbar-planta-select{color:#FFB020;}
   .planta-indicator-wrap.planta-diferente::after{content:'⚠ outra planta';font-size:10px;color:#FFB020;white-space:nowrap;}
+  /* No topbar, o cargo do usuário (ex: ADMINISTRADOR) vira texto branco simples, sem a pílula
+     colorida — a pílula continua normal em outros lugares (ex: lista de usuários no Admin). */
+  .topbar .role-tag{background:none;color:#FFFFFF;padding:0;margin-left:6px;}
 </style>
 </head>
 <body>
@@ -460,7 +463,7 @@
     </div>
     <div class="table-wrap">
       <div style="overflow-x:auto;">
-        <table class="table-solicitacoes">
+        <table class="table-solicitacoes table-nf">
           <thead><tr>
             <th class="sortable" onclick="sortNF('data')">Data/Hora<span class="sort-ind" id="sort-ind-nf-data"></span></th>
             <th class="sortable" onclick="sortNF('cliente')">Cliente<span class="sort-ind" id="sort-ind-nf-cliente"></span></th>
