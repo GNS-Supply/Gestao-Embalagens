@@ -39,7 +39,9 @@
   .planta-indicator-wrap.planta-diferente::after{content:'⚠ outra planta';font-size:10px;color:#FFB020;white-space:nowrap;}
   /* No topbar, o cargo do usuário (ex: ADMINISTRADOR) vira texto branco simples, sem a pílula
      colorida — a pílula continua normal em outros lugares (ex: lista de usuários no Admin). */
-  .topbar .role-tag{background:none;color:#FFFFFF;padding:0;margin-left:6px;text-transform:lowercase;font-weight:400;opacity:.75;}
+  .topbar .user-badge{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;line-height:1.35;gap:1px;}
+  .topbar .user-badge #topbar-name{font-size:13px;font-weight:700;color:#FFFFFF;}
+  .topbar .role-tag{background:none;color:rgba(255,255,255,.6);padding:0;margin-left:0;text-transform:lowercase;font-weight:400;font-size:10px;}
 </style>
 </head>
 <body>
