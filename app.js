@@ -530,6 +530,20 @@ function encontrarLinkTemaYMS() {
   return link || null;
 }
 
+// Espelha encontrarLinkTemaYMS() para o CSS do tema escuro (Magius) — necessário porque
+// aplicarTema('yms') precisa DESATIVAR este link, e não só ativar o do YMS (ver correção abaixo).
+function encontrarLinkTemaMagius() {
+  let link = document.getElementById('theme-magius');
+
+  if (link) {
+    return link;
+  }
+
+  link = document.querySelector('link[href*="style.css"]');
+
+  return link || null;
+}
+
 function aplicarTema(tema) {
   // Normaliza o valor recebido.
   tema = String(tema || 'magius').toLowerCase().trim();
@@ -540,6 +554,7 @@ function aplicarTema(tema) {
   }
 
   const linkYMS = encontrarLinkTemaYMS();
+  const linkMagius = encontrarLinkTemaMagius();
 
   // Guarda o tema atualmente aplicado.
   window._temaAtual = tema;
@@ -555,6 +570,12 @@ function aplicarTema(tema) {
     // Desativa o CSS externo do YMS.
     if (linkYMS) {
       linkYMS.disabled = true;
+    }
+
+    // Garante que o CSS do próprio tema (Magius) esteja ativo — espelha a desativação feita
+    // no ramo 'yms' abaixo, para nunca deixar os dois arquivos de tema ativos ao mesmo tempo.
+    if (linkMagius) {
+      linkMagius.disabled = false;
     }
 
     // Remove identificadores auxiliares do tema YMS.
@@ -596,6 +617,16 @@ function aplicarTema(tema) {
 
     // Ativa o CSS do YMS.
     link.disabled = false;
+
+    // CORREÇÃO CRÍTICA: desativa o CSS do tema escuro (Magius). Antes desta correção, os dois
+    // arquivos de tema ficavam ativos ao mesmo tempo — como os dois usam as MESMAS variáveis
+    // de cor (:root), qualquer seletor que existisse SÓ no CSS do tema escuro (ex: .user-badge)
+    // continuava sendo aplicado, só que com as variáveis já sobrescritas pelo tema claro. Foi
+    // exatamente isso que causou o fundo claro/pílula atrás do nome do usuário: .user-badge só
+    // tinha regra de background/border-radius no style.css (tema escuro), nunca desativado.
+    if (linkMagius) {
+      linkMagius.disabled = true;
+    }
 
     // Identifica o tema atual no HTML.
     document.documentElement.setAttribute('data-tema', 'yms');
