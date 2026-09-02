@@ -39,7 +39,7 @@
   .planta-indicator-wrap.planta-diferente::after{content:'⚠ outra planta';font-size:10px;color:#FFB020;white-space:nowrap;}
   /* No topbar, o cargo do usuário (ex: ADMINISTRADOR) vira texto branco simples, sem a pílula
      colorida — a pílula continua normal em outros lugares (ex: lista de usuários no Admin). */
-  .topbar .role-tag{background:none;color:#FFFFFF;padding:0;margin-left:6px;}
+  .topbar .role-tag{background:none;color:#FFFFFF;padding:0;margin-left:6px;text-transform:lowercase;font-weight:400;opacity:.75;}
 </style>
 </head>
 <body>
@@ -100,11 +100,11 @@
   <div class="topbar">
     <div class="topbar-brand">Magius · Embalagens</div>
     <div class="topbar-right">
+      <div class="user-badge"><span id="topbar-name">–</span> <span id="topbar-role" class="role-tag"></span></div>
       <div id="planta-indicator-wrap" class="planta-indicator-wrap" style="display:none;">
         <select id="topbar-planta-select" class="btn btn-secondary btn-sm planta-select-auto" style="display:none" onchange="onPlantaSelectChange(this.value)"></select>
         <span id="planta-badge" style="display:none;"></span>
       </div>
-      <div class="user-badge">Olá, <span id="topbar-name">–</span> <span id="topbar-role" class="role-tag"></span></div>
       <button class="btn btn-secondary btn-sm btn-icon admin-topbar-btn" id="btn-notif" onclick="openModalNotificacoes()" title="Notificações">🔔</button>
       <button class="btn btn-secondary btn-sm btn-icon admin-topbar-btn" id="nav-admin" onclick="switchTab('admin')" title="Administração">⚙</button>
       <button class="btn btn-secondary btn-sm" onclick="doLogout()">Sair</button>
@@ -712,7 +712,7 @@
  
 <!-- MODAL EMBALAGENS DO CLIENTE -->
 <div id="modal-cliente-embalagens" class="modal-overlay">
-  <div class="modal" style="max-width:min(950px,95vw);">
+  <div class="modal" style="max-width:min(1400px,95vw);">
     <button class="modal-close" onclick="closeModal('modal-cliente-embalagens')">✕</button>
     <div class="modal-title">📦 Embalagens do Cliente</div>
     <div class="detail-grid" style="margin-bottom:18px;">
